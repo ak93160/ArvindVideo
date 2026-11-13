@@ -145,6 +145,10 @@ try {
     browser = manifest.setdefault("browser_specific_settings", {})
     gecko = browser.setdefault("gecko", {})
     gecko["id"] = FIXED_ID
+    # Explicitly declare Android Gecko support for Firefox/GeckoView consumers.
+    manifest["browser_specific_settings"].setdefault(
+        "gecko_android", {"strict_min_version": "128.0"}
+    )
     applications = manifest.setdefault("applications", {})
     old_gecko = applications.setdefault("gecko", {})
     old_gecko["id"] = FIXED_ID

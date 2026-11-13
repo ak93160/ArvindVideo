@@ -17,6 +17,9 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
+import androidx.fragment.app.FragmentManager;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -62,6 +65,8 @@ public final class ArbNativeBuyController {
     private String pendingKey;
     private long pendingAt;
     private long lastClickedAt;
+    private long lastRefreshAt;
+    private static final long AUTO_REFRESH_INTERVAL_MS = 2500L;
     private String diagnostic = "OPEN BUY SCREEN";
     private int adapterCount;
     private int visibleRows;
@@ -144,6 +149,9 @@ public final class ArbNativeBuyController {
             updatePanelStatus();
             return;
         }
+        if (botRunning && !pendingClick && System.currentTimeMillis() - lastRefreshAt >= AUTO_REFRESH_INTERVAL_MS) {
+            refreshVisibleBuyFragment(activity);
+        }
         RecyclerScan result = new RecyclerScan();
         scanView(activity.getWindow().getDecorView(), result);
         adapterCount = result.adapterCount;
@@ -153,6 +161,99 @@ public final class ArbNativeBuyController {
                 : "NATIVE BUY LIST FOUND · " + adapterCount + " LIST";
         if (botRunning) runBot(activity, result.lists);
         updatePanelStatus();
+    }
+
+    /**
+     * Refresh the app's own currently visible Buy fragment rather than simulating
+     * a swipe gesture. OTP-UPI/BANK implement refreshBuyList(); AutoBuy and UPI
+     * reload through their existing BuyViewModel.getBuyLists(...) method.
+     */
+    private void refreshVisibleBuyFragment(Activity activity) {
+        if (!(activity instanceof FragmentActivity)) return;
+        FragmentActivity host = (FragmentActivity) activity;
+        Fragment fragment = findVisibleBuyFragment(host.getSupportFragmentManager());
+        if (fragment == null || fragment.getView() == null || !fragment.getView().isShown()) return;
+        try {
+            Method refresh = findMethod(fragment.getClass(), "refreshBuyList", 0);
+            if (refresh != null) {
+                refresh.setAccessible(true);
+                refresh.invoke(fragment);
+                lastRefreshAt = System.currentTimeMillis();
+                diagnostic = "AUTO REFRESH · " + fragment.getClass().getSimpleName();
+                return;
+            }
+            // AutoBuy/UPI do not override BaseBuyFragment.refreshBuyList().
+            Object viewModel = invokeObject(fragment, "getViewModel");
+            if (viewModel == null) return;
+            String max = invokeString(fragment, "getMMaxAmount");
+            String min = invokeString(fragment, "getMMinAmount");
+            String payment = invokeString(fragment, "getMPaymentType");
+            int pageType = readIntField(fragment, "pageType", -1);
+            if (pageType < 0) return;
+            Method getLists = findMethod(viewModel.getClass(), "getBuyLists", 6);
+            if (getLists == null) return;
+            Class<?> callbackType = getLists.getParameterTypes()[5];
+            Object callback = java.lang.reflect.Proxy.newProxyInstance(
+                    callbackType.getClassLoader(), new Class<?>[]{callbackType},
+                    new java.lang.reflect.InvocationHandler() {
+                        @Override public Object invoke(Object proxy, Method method, Object[] args) {
+                            if ("invoke".equals(method.getName())) return kotlin.Unit.INSTANCE;
+                            if ("toString".equals(method.getName())) return "ArbAutoRefreshCallback";
+                            if ("hashCode".equals(method.getName())) return System.identityHashCode(proxy);
+                            if ("equals".equals(method.getName())) return proxy == (args == null ? null : args[0]);
+                            return null;
+                        }
+                    });
+            getLists.setAccessible(true);
+            getLists.invoke(viewModel, max, min, payment, Integer.valueOf(pageType),
+                    Boolean.valueOf(fragment.getClass().getSimpleName().contains("Auto")), callback);
+            lastRefreshAt = System.currentTimeMillis();
+            diagnostic = "AUTO REFRESH · " + fragment.getClass().getSimpleName();
+        } catch (Exception e) {
+            diagnostic = "AUTO REFRESH RETRY";
+        }
+    }
+
+    private Fragment findVisibleBuyFragment(FragmentManager manager) {
+        if (manager == null) return null;
+        List<Fragment> fragments = manager.getFragments();
+        for (int i = fragments.size() - 1; i >= 0; i--) {
+            Fragment fragment = fragments.get(i);
+            if (fragment == null || !fragment.isAdded() || fragment.isDetached() || !fragment.isVisible()) continue;
+            Fragment nested = findVisibleBuyFragment(fragment.getChildFragmentManager());
+            if (nested != null) return nested;
+            String name = fragment.getClass().getName();
+            if (name.startsWith("com.pt.ar.wallet.home.buy.fragment.")
+                    && fragment.getView() != null && fragment.getView().isShown()) return fragment;
+        }
+        return null;
+    }
+
+    private Method findMethod(Class<?> type, String name, int parameterCount) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            for (Method method : current.getDeclaredMethods()) {
+                if (name.equals(method.getName()) && method.getParameterTypes().length == parameterCount) return method;
+            }
+        }
+        return null;
+    }
+
+    private Object invokeObject(Object target, String name) {
+        if (target == null) return null;
+        try {
+            Method method = findMethod(target.getClass(), name, 0);
+            if (method == null) return null;
+            method.setAccessible(true);
+            return method.invoke(target);
+        } catch (Exception ignored) { return null; }
+    }
+
+    private int readIntField(Object target, String name, int fallback) {
+        try {
+            Field field = target.getClass().getDeclaredField(name);
+            field.setAccessible(true);
+            return field.getInt(target);
+        } catch (Exception ignored) { return fallback; }
     }
 
     private void runBot(Activity activity, List<Object> lists) {

@@ -70,7 +70,10 @@ public final class ArbBootstrapProvider extends ContentProvider {
                 }
                 @Override public void onActivityStopped(Activity a) { }
                 @Override public void onActivitySaveInstanceState(Activity a, android.os.Bundle b) { }
-                @Override public void onActivityDestroyed(Activity a) { injected.clear(); }
+                @Override public void onActivityDestroyed(Activity a) {
+                    nativeController.onActivityDestroyed(a);
+                    injected.clear();
+                }
             });
         }
         return true;
@@ -102,7 +105,7 @@ public final class ArbBootstrapProvider extends ContentProvider {
                     refreshToggle(activity);
                 } catch (Exception e) { Log.w(TAG, "WebView scan failed", e); }
             }
-            long nextDelay = nativeController.isBuyActivity(activity) && nativeController.isBotRunning()
+            long nextDelay = nativeController.isBotRunning()
                     ? nativeController.getScanIntervalMs() : 600L;
             handler.postDelayed(this, Math.max(160L, nextDelay));
         }

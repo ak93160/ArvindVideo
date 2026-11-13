@@ -204,9 +204,12 @@ public final class ArbNativeBuyController {
             ArbQrSaveOverlay.show(activity, qr);
             return;
         }
-        if (pendingClick) selectConfiguredProvider(activity);
-        Activity buy = buyActivityRef.get();
-        if (buy != null && !buy.isFinishing()) scanBuyActivity(buy);
+        if (pendingClick) {
+            selectConfiguredProvider(activity);
+        } else {
+            Activity buy = buyActivityRef.get();
+            if (buy != null && !buy.isFinishing()) scanBuyActivity(buy);
+        }
     }
 
     private Object findOtpUpiFragmentFromActivity(Activity activity) {
@@ -237,7 +240,7 @@ public final class ArbNativeBuyController {
 
     private boolean isQrPaymentScreen(Activity activity, View root) {
         String name = activity.getClass().getName().toLowerCase(java.util.Locale.ROOT);
-        boolean qrName = name.contains("qr") || name.contains("payment") || name.contains("paying");
+        boolean qrName = name.contains("qr");
         boolean qrText = containsScreenText(root, "scan to pay") || containsScreenText(root, "scan qr")
                 || containsScreenText(root, "qr code") || containsScreenText(root, "payment qr");
         return qrName || qrText;

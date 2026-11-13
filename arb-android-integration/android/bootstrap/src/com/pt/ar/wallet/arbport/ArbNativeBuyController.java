@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
+import android.text.TextWatcher;
+import android.text.Editable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -15,6 +17,9 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.Spinner;
+import android.widget.ArrayAdapter;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -42,6 +47,7 @@ public final class ArbNativeBuyController {
     private static final String PREF_MAX = "native_bot_max";
     private static final String PREF_LATENCY = "native_bot_latency";
     private static final String PREF_REFRESH_MS = "native_bot_refresh_ms";
+    private static final String PREF_PROVIDER = "native_bot_provider";
     private static final String BUY_ACTIVITY = "com.pt.ar.wallet.home.buy.activity.BuyActivity";
     private static final String ADAPTER_CLASS = "com.pt.ar.wallet.home.buy.adapter.BuyOptionalNewAdapter";
     private static final String PANEL_TAG = "ARB_NATIVE_BUY_PANEL";
@@ -57,7 +63,10 @@ public final class ArbNativeBuyController {
     private EditText maxInput;
     private EditText latencyInput;
     private EditText refreshInput;
+    private Spinner providerInput;
     private RadioGroup modeGroup;
+    private WeakReference<Activity> buyActivityRef = new WeakReference<Activity>(null);
+    private boolean providerSelectionDone;
     private boolean panelExpanded;
     private boolean botRunning;
     private boolean pendingClick;
@@ -89,17 +98,22 @@ public final class ArbNativeBuyController {
     }
 
     public void onActivityResumed(Activity activity) {
+        currentActivity = new WeakReference<Activity>(activity);
         if (isBuyActivity(activity)) {
-            currentActivity = new WeakReference<Activity>(activity);
+            buyActivityRef = new WeakReference<Activity>(activity);
             installPanel(activity);
-            scan(activity);
-        } else {
-            if (botRunning) pauseForNextScreen();
-            currentActivity = new WeakReference<Activity>(activity);
+            scanBuyActivity(activity);
+        } else if (botRunning) {
+            handlePaymentOrBackground(activity);
         }
     }
 
     public void onActivityPaused(Activity activity) {
+        if (currentActivity.get() == activity) currentActivity.clear();
+    }
+
+    public void onActivityDestroyed(Activity activity) {
+        if (buyActivityRef.get() == activity) buyActivityRef.clear();
         if (currentActivity.get() == activity) currentActivity.clear();
     }
 
@@ -118,7 +132,7 @@ public final class ArbNativeBuyController {
     }
 
     public long getRefreshIntervalMs() {
-        int value = prefs().getInt(PREF_REFRESH_MS, 2500);
+        int value = prefs().getInt(PREF_REFRESH_MS, 1000);
         return Math.max(10, Math.min(60000, value));
     }
 
@@ -146,24 +160,160 @@ public final class ArbNativeBuyController {
     }
 
     public void scan(Activity activity) {
-        if (activity == null || !isBuyActivity(activity) || activity.isFinishing()) return;
+        if (activity == null || activity.isFinishing()) return;
         if (!isEnabled()) {
+            if (botRunning) stopBot("EXTENSION OFF");
             diagnostic = "EXTENSION OFF";
             updatePanelStatus();
             return;
         }
-        if (botRunning && !pendingClick && System.currentTimeMillis() - lastRefreshAt >= getRefreshIntervalMs()) {
-            refreshVisibleBuyFragment(activity);
+        if (isBuyActivity(activity)) {
+            buyActivityRef = new WeakReference<Activity>(activity);
+            scanBuyActivity(activity);
+        } else if (botRunning) {
+            handlePaymentOrBackground(activity);
         }
+    }
+
+    private void scanBuyActivity(Activity activity) {
+        if (activity == null || activity.isFinishing() || !botRunning) return;
+        ImageView onBuyQr = findQrImageView(activity.getWindow().getDecorView());
+        if (onBuyQr != null && onBuyQr.isShown() && isQrPaymentScreen(activity, activity.getWindow().getDecorView())) {
+            stopBot("QR SCREEN FOUND · BOT STOPPED");
+            ArbQrSaveOverlay.show(activity, onBuyQr);
+            return;
+        }
+        if (System.currentTimeMillis() - lastRefreshAt >= getRefreshIntervalMs()) refreshVisibleBuyFragment(activity);
+        Object fragment = findOtpUpiFragmentFromActivity(activity);
+        Object fragmentView = invokeObject(fragment, "getView");
         RecyclerScan result = new RecyclerScan();
-        scanView(activity.getWindow().getDecorView(), result);
+        if (fragmentView instanceof View) scanView((View) fragmentView, result);
+        if (result.adapterCount == 0) scanView(activity.getWindow().getDecorView(), result);
         adapterCount = result.adapterCount;
         visibleRows = result.visibleRows;
-        diagnostic = adapterCount == 0
-                ? "NATIVE BUY LIST NOT FOUND"
-                : "NATIVE BUY LIST FOUND · " + adapterCount + " LIST";
-        if (botRunning) runBot(activity, result.lists);
+        diagnostic = adapterCount == 0 ? "OTP UPI LIST SEARCHING" : "OTP UPI LIST FOUND · " + adapterCount;
+        runBot(activity, result.lists);
         updatePanelStatus();
+    }
+
+    private void handlePaymentOrBackground(Activity activity) {
+        if (activity == null || activity.isFinishing() || !botRunning) return;
+        ImageView qr = findQrImageView(activity.getWindow().getDecorView());
+        if (qr != null && qr.isShown() && isQrPaymentScreen(activity, activity.getWindow().getDecorView())) {
+            stopBot("QR SCREEN FOUND · BOT STOPPED");
+            ArbQrSaveOverlay.show(activity, qr);
+            return;
+        }
+        if (pendingClick) selectConfiguredProvider(activity);
+        Activity buy = buyActivityRef.get();
+        if (buy != null && !buy.isFinishing()) scanBuyActivity(buy);
+    }
+
+    private Object findOtpUpiFragmentFromActivity(Activity activity) {
+        try {
+            Method getter = findMethod(activity.getClass(), "getSupportFragmentManager", 0);
+            if (getter == null) return null;
+            getter.setAccessible(true);
+            return findOtpUpiFragment(getter.invoke(activity));
+        } catch (Exception ignored) { return null; }
+    }
+
+    private Object findOtpUpiFragment(Object manager) {
+        if (manager == null) return null;
+        try {
+            Object value = manager.getClass().getMethod("getFragments").invoke(manager);
+            if (!(value instanceof List)) return null;
+            List<?> fragments = (List<?>) value;
+            for (int i = fragments.size() - 1; i >= 0; i--) {
+                Object fragment = fragments.get(i);
+                if (fragment == null) continue;
+                if (fragment.getClass().getName().endsWith(".OtpUPIBuyFragment")) return fragment;
+                Object nested = findOtpUpiFragment(invokeObject(fragment, "getChildFragmentManager"));
+                if (nested != null) return nested;
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    private boolean isQrPaymentScreen(Activity activity, View root) {
+        String name = activity.getClass().getName().toLowerCase(java.util.Locale.ROOT);
+        boolean qrName = name.contains("qr") || name.contains("payment") || name.contains("paying");
+        boolean qrText = containsScreenText(root, "scan to pay") || containsScreenText(root, "scan qr")
+                || containsScreenText(root, "qr code") || containsScreenText(root, "payment qr");
+        return qrName || qrText;
+    }
+
+    private boolean containsScreenText(View view, String needle) {
+        if (view == null) return false;
+        if (view instanceof TextView) {
+            CharSequence t = ((TextView) view).getText();
+            if (t != null && t.toString().toLowerCase(java.util.Locale.ROOT).contains(needle)) return true;
+        }
+        CharSequence cd = view.getContentDescription();
+        if (cd != null && cd.toString().toLowerCase(java.util.Locale.ROOT).contains(needle)) return true;
+        if (view instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) view;
+            for (int i=0;i<g.getChildCount();i++) if (containsScreenText(g.getChildAt(i), needle)) return true;
+        }
+        return false;
+    }
+
+    private ImageView findQrImageView(View view) {
+        if (view == null) return null;
+        if (view instanceof ImageView) {
+            ImageView image = (ImageView) view;
+            int w = image.getWidth(), h = image.getHeight();
+            float density = image.getResources().getDisplayMetrics().density;
+            if (w >= (int)(120 * density) && h >= (int)(120 * density)
+                    && Math.abs(w-h) <= Math.max(w,h)/4 && image.getDrawable() != null) return image;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) view;
+            ImageView best = null;
+            int bestArea = 0;
+            for (int i=0;i<g.getChildCount();i++) {
+                ImageView found = findQrImageView(g.getChildAt(i));
+                if (found != null) {
+                    int area = found.getWidth() * found.getHeight();
+                    if (area > bestArea) { best=found; bestArea=area; }
+                }
+            }
+            return best;
+        }
+        return null;
+    }
+
+    private void selectConfiguredProvider(Activity activity) {
+        if (providerSelectionDone) return;
+        String screen = activity.getClass().getName().toLowerCase(java.util.Locale.ROOT);
+        View root = activity.getWindow().getDecorView();
+        if (!(screen.contains("pay") || screen.contains("payment") || screen.contains("order")
+                || containsScreenText(root, "choose payment") || containsScreenText(root, "payment method"))) return;
+        String provider = prefs().getString(PREF_PROVIDER, "PhonePe");
+        if (provider == null || provider.length() == 0 || "Other".equals(provider)) return;
+        View option = findClickableText(root, provider, null);
+        if (option != null && option.isEnabled()) {
+            providerSelectionDone = option.performClick();
+            if (providerSelectionDone) diagnostic = "PROVIDER SELECTED · " + provider;
+        }
+    }
+
+    private View findClickableText(View view, String text, View clickableParent) {
+        if (view == null) return null;
+        View parent = view.isClickable() ? view : clickableParent;
+        if (view instanceof TextView) {
+            CharSequence t = ((TextView) view).getText();
+            if (t != null && t.toString().toLowerCase(java.util.Locale.ROOT).contains(text.toLowerCase(java.util.Locale.ROOT)))
+                return parent;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) view;
+            for (int i=0;i<g.getChildCount();i++) {
+                View found = findClickableText(g.getChildAt(i), text, parent);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     /**
@@ -177,10 +327,10 @@ public final class ArbNativeBuyController {
             if (managerGetter == null) return;
             managerGetter.setAccessible(true);
             Object manager = managerGetter.invoke(activity);
-            Object fragment = findVisibleBuyFragment(manager);
+            Object fragment = findOtpUpiFragment(manager);
             if (fragment == null) return;
             Object fragmentView = invokeObject(fragment, "getView");
-            if (!(fragmentView instanceof View) || !((View) fragmentView).isShown()) return;
+            if (!(fragmentView instanceof View)) return;
 
             Method refresh = findMethod(fragment.getClass(), "refreshBuyList", 0);
             if (refresh != null && !"BaseBuyFragment".equals(refresh.getDeclaringClass().getSimpleName())) {
@@ -313,12 +463,13 @@ public final class ArbNativeBuyController {
                         return;
                     }
                     View buyButton = findBuyButton(row);
-                    if (buyButton == null || !buyButton.isEnabled() || !buyButton.isShown()) continue;
+                    if (buyButton == null || !buyButton.isEnabled()) continue;
                     if (now - lastClickedAt < getScanIntervalMs()) return;
 
                     // Reuse the app's own visible Buy button and its existing validation/payment flow.
                     if (buyButton.performClick()) {
                         pendingClick = true;
+                        providerSelectionDone = false;
                         pendingKey = key;
                         pendingAt = now;
                         lastClickedAt = now;
@@ -424,12 +575,12 @@ public final class ArbNativeBuyController {
     }
 
     private void scanView(View view, RecyclerScan scan) {
-        if (view == null || view.getVisibility() != View.VISIBLE) return;
+        if (view == null) return;
         String className = view.getClass().getName();
         if (className.startsWith("androidx.recyclerview.widget.RecyclerView")) {
             try {
                 Object adapter = view.getClass().getMethod("getAdapter").invoke(view);
-                if (adapter != null && ADAPTER_CLASS.equals(adapter.getClass().getName()) && view.isShown()) {
+                if (adapter != null && ADAPTER_CLASS.equals(adapter.getClass().getName())) {
                     scan.adapterCount++;
                     int count = ((Integer) view.getClass().getMethod("getChildCount").invoke(view)).intValue();
                     scan.visibleRows += count;
@@ -450,12 +601,8 @@ public final class ArbNativeBuyController {
     }
 
     private void pauseForNextScreen() {
-        if (pendingClick && pendingKey != null) attemptedKeys.add(pendingKey);
-        pendingClick = false;
-        pendingKey = null;
-        botRunning = false;
-        prefs().edit().putBoolean(PREF_BOT, false).apply();
-        diagnostic = "ORDER SCREEN OPENED · BOT PAUSED";
+        // Kept for compatibility; normal in-app navigation no longer pauses the bot.
+        diagnostic = "BACKGROUND OTP UPI SEARCH";
         updatePanelStatus();
     }
 
@@ -536,10 +683,22 @@ public final class ArbNativeBuyController {
         refreshRow.setGravity(Gravity.CENTER_VERTICAL);
         refreshRow.addView(makeText(activity, "Refresh (ms)", 12, Color.DKGRAY, false),
                 new LinearLayout.LayoutParams(0, dp(activity, 36), 1));
-        refreshInput = makeAmountInput(activity, "2500");
-        refreshInput.setText("2500");
+        refreshInput = makeAmountInput(activity, "1000");
+        refreshInput.setText("1000");
         refreshRow.addView(refreshInput, new LinearLayout.LayoutParams(dp(activity, 86), dp(activity, 38)));
         panel.addView(refreshRow);
+
+        LinearLayout providerRow = new LinearLayout(activity);
+        providerRow.setGravity(Gravity.CENTER_VERTICAL);
+        providerRow.addView(makeText(activity, "Payment Provider", 12, Color.DKGRAY, false),
+                new LinearLayout.LayoutParams(0, dp(activity, 38), 1));
+        providerInput = new Spinner(activity);
+        ArrayAdapter<String> providerAdapter = new ArrayAdapter<String>(activity,
+                android.R.layout.simple_spinner_item, new String[]{"PhonePe", "Moneyview", "Other"});
+        providerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        providerInput.setAdapter(providerAdapter);
+        providerRow.addView(providerInput, new LinearLayout.LayoutParams(dp(activity, 124), dp(activity, 42)));
+        panel.addView(providerRow);
 
         panelStatus = makeText(activity, "Searching for the native Buy list…", 11, Color.rgb(80, 88, 98), false);
         panelStatus.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
@@ -553,6 +712,16 @@ public final class ArbNativeBuyController {
         });
 
         loadSettingsIntoPanel();
+        if (refreshInput != null) refreshInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                BigDecimal v = parseAmount(s == null ? "" : s.toString());
+                if (v != null && v.compareTo(BigDecimal.valueOf(10)) >= 0) {
+                    prefs().edit().putInt(PREF_REFRESH_MS, Math.max(10, Math.min(60000, v.intValue()))).apply();
+                }
+            }
+            @Override public void afterTextChanged(Editable s) { }
+        });
         modeGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
             @Override public void onCheckedChanged(RadioGroup group, int checkedId) { updateModeInputs(); }
         });
@@ -575,7 +744,12 @@ public final class ArbNativeBuyController {
         if (minInput != null) minInput.setText(p.getString(PREF_MIN, "500"));
         if (maxInput != null) maxInput.setText(p.getString(PREF_MAX, "900"));
         if (latencyInput != null) latencyInput.setText(String.valueOf(p.getInt(PREF_LATENCY, 200)));
-        if (refreshInput != null) refreshInput.setText(String.valueOf(p.getInt(PREF_REFRESH_MS, 2500)));
+        if (refreshInput != null) refreshInput.setText(String.valueOf(p.getInt(PREF_REFRESH_MS, 1000)));
+        if (providerInput != null) {
+            String provider = p.getString(PREF_PROVIDER, "PhonePe");
+            int index = "Moneyview".equals(provider) ? 1 : ("Other".equals(provider) ? 2 : 0);
+            providerInput.setSelection(index);
+        }
         if (modeGroup != null) modeGroup.check("range".equals(p.getString(PREF_MODE, "fixed")) ? 1002 : 1001);
     }
 
@@ -625,12 +799,14 @@ public final class ArbNativeBuyController {
                 .putString(PREF_MIN, min).putString(PREF_MAX, max)
                 .putInt(PREF_LATENCY, delay)
                 .putInt(PREF_REFRESH_MS, Math.max(10, Math.min(60000, refreshValue.intValue())))
+                .putString(PREF_PROVIDER, providerInput == null ? "PhonePe" : String.valueOf(providerInput.getSelectedItem()))
                 .putBoolean(PREF_BOT, true).apply();
         botRunning = true;
+        providerSelectionDone = false;
         pendingClick = false;
         pendingKey = null;
         diagnostic = "BOT STARTED · SEARCHING";
-        Toast.makeText(activity, "ARB Bot started. It pauses when the payment screen opens.", Toast.LENGTH_LONG).show();
+        Toast.makeText(activity, "ARB Bot started. OTP UPI background search runs across app pages and stops at QR.", Toast.LENGTH_LONG).show();
         updatePanelStatus();
         scan(activity);
     }

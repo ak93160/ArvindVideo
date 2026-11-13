@@ -27,7 +27,8 @@ import java.util.WeakHashMap;
 public final class ArbBootstrapProvider extends ContentProvider {
     private static final String TAG = "ArbAndroidPort";
     private static final String JS_NAME = "ArbNativeBridge";
-    private static final String[] HOSTS = {"arbpay.me", "arbpay.ai", "arbpay.vip", "arbpay.top", "arbpay.cc"};
+    private static final String[] HOSTS = {"arbpay.me", "arbpay.ai", "arbpay.vip", "arbpay.top", "arbpay.cc", "arbpay.co",
+            "payvuno.com", "payduno.com", "payzuva.com", "paykexo.com", "paykuno.com", "paywivo.com", "payjora.com"};
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<WebView, String> injected = Collections.synchronizedMap(new WeakHashMap<WebView, String>());
     private WeakReference<Activity> currentActivity = new WeakReference<Activity>(null);

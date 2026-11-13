@@ -1,0 +1,101 @@
+name: Analyze native ARB Buy screens
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/analyze-native-buy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download original APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/input
+          gh release download arb-inputs-v1 --repo "$GITHUB_REPOSITORY" \
+            --pattern "base.apk" --dir build/input
+          test -s build/input/base.apk
+          unzip -t build/input/base.apk >/dev/null
+
+      - name: Download JADX
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip \
+            -o build/jadx.zip
+          mkdir -p build/jadx-bin
+          unzip -q build/jadx.zip -d build/jadx-bin
+          test -x build/jadx-bin/bin/jadx
+
+      - name: Decompile original APK
+        run: |
+          set -euo pipefail
+          build/jadx-bin/bin/jadx -d build/decompiled build/input/base.apk
+
+      - name: Prepare focused native Buy report
+        run: |
+          set -euo pipefail
+          mkdir -p build/focused
+          SRC=build/decompiled/sources/com/pt/ar/wallet
+          for f in \
+            home/buy/activity/BuyActivity.java \
+            home/buy/activity/BuyInfoSplitOrderActivity.java \
+            home/buy/activity/BuyInfoConfirmOrderActivity.java \
+            home/buy/activity/BuyUpiOrderStep1Activity.java \
+            home/buy/activity/BuyUpiOrderStep2Activity.java \
+            home/buy/activity/BuyBankOrderStep1Activity.java \
+            home/buy/activity/BuyBankOrderStep2Activity.java \
+            home/activity/MainActivity.java \
+            home/activity/WebCommonActivity.java; do
+              if [[ -f "$SRC/$f" ]]; then
+                mkdir -p "build/focused/$(dirname "$f")"
+                cp "$SRC/$f" "build/focused/$f"
+              fi
+            done
+          {
+            echo "# Original APK: Native Buy screen investigation"
+            echo
+            echo "- Input: owner-uploaded `base.apk` from release `arb-inputs-v1`"
+            echo "- Package: `com.pt.ar.wallet`"
+            echo "- Decompiled using JADX 1.5.6"
+            echo
+            echo "## Relevant classes"
+            find "$SRC/home" -type f -name '*.java' | sed "s#$SRC/##" | grep -E '(^buy/|MainActivity|WebCommon)' | sort | head -200
+            echo
+            echo "## WebView / list / tab references in Buy package"
+            grep -RniE 'WebView|RecyclerView|ViewPager|TabLayout|BuyActivity|onClick|setOnClickListener|Order' "$SRC/home/buy" \
+              --include='*.java' | head -260 || true
+            echo
+            echo "## BuyActivity source"
+            if [[ -f "$SRC/home/buy/activity/BuyActivity.java" ]]; then
+              sed -n '1,320p' "$SRC/home/buy/activity/BuyActivity.java"
+            else
+              echo "BuyActivity.java not emitted by JADX."
+            fi
+          } > build/focused/REPORT.md
+          cat build/focused/REPORT.md
+
+      - name: Upload focused source and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-buy-screen-analysis
+          path: build/focused
+          if-no-files-found: error
+          retention-days: 7

@@ -64,6 +64,21 @@ def main():
     if not manifest.get("name"):
         manifest["name"] = "ARB Buyer Extension"
 
+    # Remove references to files absent from the supplied XPI. The supplied
+    # package references license.js, but that file is not present; GeckoView
+    # rejects content scripts whose referenced files cannot be resolved.
+    for key in ("content_scripts",):
+        entries = manifest.get(key, [])
+        for entry in entries:
+            entry["js"] = [name for name in entry.get("js", []) if (output / name).is_file()]
+        manifest[key] = [entry for entry in entries if entry.get("js") or entry.get("css")]
+
+    # Native messaging is used only for the browser's local toolbar controls.
+    # This is available to bundled GeckoView extensions.
+    permissions = manifest.setdefault("permissions", [])
+    if "geckoViewAddons" not in permissions:
+        permissions.append("geckoViewAddons")
+
     # Bundled GeckoView extensions can be installed without AMO signing.
     browser = manifest.setdefault("browser_specific_settings", {})
     gecko = browser.setdefault("gecko", {})

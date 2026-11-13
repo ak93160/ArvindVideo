@@ -45,10 +45,13 @@ public final class ArbBootstrapProvider extends ContentProvider {
     private static final String PREFS = "arb_extension_port";
     private static final String PREF_ENABLED = "extension_enabled";
     private static final String TOGGLE_TAG = "ARB_EXTENSION_TOGGLE";
+    private static final String SETTINGS_TAG = "ARB_EXTENSION_SETTINGS";
+    private ArbNativeBuyController nativeController;
 
     @Override public boolean onCreate() {
         Context ctx = getContext();
         if (ctx == null) return false;
+        nativeController = new ArbNativeBuyController(ctx);
         Context app = ctx.getApplicationContext();
         if (app instanceof Application) {
             ((Application) app).registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
@@ -56,11 +59,13 @@ public final class ArbBootstrapProvider extends ContentProvider {
                 @Override public void onActivityStarted(Activity a) { }
                 @Override public void onActivityResumed(Activity a) {
                     currentActivity = new WeakReference<Activity>(a);
+                    nativeController.onActivityResumed(a);
                     requestNotificationPermission(a);
                     installToggle(a);
                     startScanning();
                 }
                 @Override public void onActivityPaused(Activity a) {
+                    nativeController.onActivityPaused(a);
                     if (currentActivity.get() == a) { currentActivity.clear(); stopScanning(); }
                 }
                 @Override public void onActivityStopped(Activity a) { }
@@ -93,6 +98,7 @@ public final class ArbBootstrapProvider extends ContentProvider {
                     View decor = activity.getWindow().getDecorView();
                     installToggle(activity);
                     scanView(decor);
+                    nativeController.scan(activity);
                     refreshToggle(activity);
                 } catch (Exception e) { Log.w(TAG, "WebView scan failed", e); }
             }
@@ -148,17 +154,20 @@ public final class ArbBootstrapProvider extends ContentProvider {
         if (!(decor instanceof ViewGroup)) return;
         View existing = decor.findViewWithTag(TOGGLE_TAG);
         if (existing instanceof TextView) {
+            if (decor.findViewWithTag(SETTINGS_TAG) == null) addSettingsButton(activity, (ViewGroup) decor);
             refreshToggle(activity);
             return;
         }
+
         final TextView toggle = new TextView(activity);
         toggle.setTag(TOGGLE_TAG);
         toggle.setTextSize(12f);
-        toggle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        toggle.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
         toggle.setTextColor(Color.WHITE);
         toggle.setGravity(Gravity.CENTER);
-        toggle.setPadding(dp(activity, 14), dp(activity, 9), dp(activity, 14), dp(activity, 9));
+        toggle.setPadding(dp(activity, 12), dp(activity, 9), dp(activity, 12), dp(activity, 9));
         toggle.setElevation(dp(activity, 7));
+        toggle.setMaxWidth(dp(activity, 280));
         toggle.setClickable(true);
         toggle.setFocusable(true);
         toggle.setOnClickListener(new View.OnClickListener() {
@@ -169,9 +178,40 @@ public final class ArbBootstrapProvider extends ContentProvider {
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(activity, 42), Gravity.TOP | Gravity.END);
         params.topMargin = dp(activity, 74);
-        params.rightMargin = dp(activity, 12);
+        params.rightMargin = dp(activity, 60);
         ((ViewGroup) decor).addView(toggle, params);
+        addSettingsButton(activity, (ViewGroup) decor);
         refreshToggle(activity);
+    }
+
+    private void addSettingsButton(final Activity activity, ViewGroup decor) {
+        if (decor.findViewWithTag(SETTINGS_TAG) != null) return;
+        final TextView settings = new TextView(activity);
+        settings.setTag(SETTINGS_TAG);
+        settings.setText("⚙");
+        settings.setTextSize(19f);
+        settings.setTextColor(Color.WHITE);
+        settings.setGravity(Gravity.CENTER);
+        settings.setBackground(makePill(activity, Color.rgb(54, 62, 76)));
+        settings.setElevation(dp(activity, 7));
+        settings.setClickable(true);
+        settings.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                nativeController.openSettings(activity);
+            }
+        });
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(activity, 44), dp(activity, 42), Gravity.TOP | Gravity.END);
+        params.topMargin = dp(activity, 74);
+        params.rightMargin = dp(activity, 10);
+        decor.addView(settings, params);
+    }
+
+    private GradientDrawable makePill(Activity activity, int color) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(activity, 20));
+        bg.setStroke(dp(activity, 1), Color.argb(90, 255, 255, 255));
+        return bg;
     }
 
     private void refreshToggle(Activity activity) {
@@ -184,24 +224,26 @@ public final class ArbBootstrapProvider extends ContentProvider {
         String label;
         int color;
         if (!enabled) {
-            label = "EXTENSION  OFF";
+            label = "EXTENSION OFF";
             color = Color.rgb(92, 99, 112);
+        } else if (nativeController.isBuyActivity(activity)) {
+            label = nativeController.getAdapterCount() > 0
+                    ? "EXTENSION ON  •  NATIVE BUY LIST"
+                    : "EXTENSION ON  •  FINDING BUY LIST";
+            color = nativeController.getAdapterCount() > 0
+                    ? Color.rgb(29, 137, 87) : Color.rgb(190, 105, 28);
         } else if (scannedWebViews == 0) {
-            label = "EXTENSION  ON  •  NO WEBVIEW";
+            label = "EXTENSION ON  •  OPEN BUY";
             color = Color.rgb(190, 105, 28);
         } else if (allowedWebViews == 0) {
-            label = "EXTENSION  ON  •  OPEN ARB PAGE";
+            label = "EXTENSION ON  •  OPEN ARB PAGE";
             color = Color.rgb(190, 105, 28);
         } else {
-            label = "EXTENSION  ON  •  ARB PAGE FOUND";
+            label = "EXTENSION ON  •  PAGE FOUND";
             color = Color.rgb(29, 137, 87);
         }
         toggle.setText(label);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(color);
-        bg.setCornerRadius(dp(activity, 20));
-        bg.setStroke(dp(activity, 1), Color.argb(90, 255, 255, 255));
-        toggle.setBackground(bg);
+        toggle.setBackground(makePill(activity, color));
         toggle.setContentDescription(enabled ? "Turn ARB extension off" : "Turn ARB extension on");
     }
 
@@ -211,18 +253,17 @@ public final class ArbBootstrapProvider extends ContentProvider {
         boolean enabled = !isExtensionEnabled();
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(PREF_ENABLED, enabled).apply();
+        nativeController.onExtensionToggled(activity, enabled);
         injected.clear();
         reloadAllowedWebViews(activity.getWindow().getDecorView());
         refreshToggle(activity);
         String message;
         if (!enabled) {
-            message = "ARB Extension OFF. Current ARB page will reload without the extension.";
-        } else if (scannedWebViews == 0) {
-            message = "ARB Extension ON. No WebView found on this screen.";
-        } else if (allowedWebViews == 0) {
-            message = "ARB Extension ON. Open the ARB Buy page; this screen's domain is not in the allowlist.";
+            message = "ARB Extension OFF.";
+        } else if (nativeController.isBuyActivity(activity)) {
+            message = "ARB Extension ON. Open the gear button to configure Native Buy matching.";
         } else {
-            message = "ARB Extension ON. Reloading the ARB page so scripts can attach.";
+            message = "ARB Extension ON. Open the Buy screen to use Native Buy matching.";
         }
         Toast.makeText(activity, message, Toast.LENGTH_LONG).show();
     }

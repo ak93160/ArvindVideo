@@ -11,7 +11,13 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.util.Log;
+import android.view.Gravity;
+import android.widget.FrameLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
@@ -34,6 +40,11 @@ public final class ArbBootstrapProvider extends ContentProvider {
     private WeakReference<Activity> currentActivity = new WeakReference<Activity>(null);
     private boolean scanning;
     private boolean notificationPermissionAsked;
+    private int scannedWebViews;
+    private int allowedWebViews;
+    private static final String PREFS = "arb_extension_port";
+    private static final String PREF_ENABLED = "extension_enabled";
+    private static final String TOGGLE_TAG = "ARB_EXTENSION_TOGGLE";
 
     @Override public boolean onCreate() {
         Context ctx = getContext();
@@ -46,6 +57,7 @@ public final class ArbBootstrapProvider extends ContentProvider {
                 @Override public void onActivityResumed(Activity a) {
                     currentActivity = new WeakReference<Activity>(a);
                     requestNotificationPermission(a);
+                    installToggle(a);
                     startScanning();
                 }
                 @Override public void onActivityPaused(Activity a) {
@@ -75,15 +87,27 @@ public final class ArbBootstrapProvider extends ContentProvider {
             if (!scanning) return;
             Activity activity = currentActivity.get();
             if (activity != null && !activity.isFinishing()) {
-                try { scanView(activity.getWindow().getDecorView()); }
-                catch (Exception e) { Log.w(TAG, "WebView scan failed", e); }
+                try {
+                    scannedWebViews = 0;
+                    allowedWebViews = 0;
+                    View decor = activity.getWindow().getDecorView();
+                    installToggle(activity);
+                    scanView(decor);
+                    refreshToggle(activity);
+                } catch (Exception e) { Log.w(TAG, "WebView scan failed", e); }
             }
             handler.postDelayed(this, 1100L);
         }
     };
 
     private void scanView(View view) {
-        if (view instanceof WebView) { injectIfAllowed((WebView) view); return; }
+        if (view instanceof WebView) {
+            WebView webView = (WebView) view;
+            scannedWebViews++;
+            if (isAllowed(webView.getUrl())) allowedWebViews++;
+            injectIfAllowed(webView);
+            return;
+        }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) scanView(group.getChildAt(i));
@@ -91,6 +115,7 @@ public final class ArbBootstrapProvider extends ContentProvider {
     }
 
     private void injectIfAllowed(WebView webView) {
+        if (!isExtensionEnabled()) return;
         String url = webView.getUrl();
         if (!isAllowed(url)) return;
         String prior = injected.get(webView);
@@ -110,6 +135,119 @@ public final class ArbBootstrapProvider extends ContentProvider {
             injected.remove(webView);
             Log.e(TAG, "Extension injection failed", e);
         }
+    }
+
+    private boolean isExtensionEnabled() {
+        Context ctx = getContext();
+        return ctx != null && ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_ENABLED, false);
+    }
+
+    private void installToggle(final Activity activity) {
+        if (activity == null || activity.isFinishing()) return;
+        View decor = activity.getWindow().getDecorView();
+        if (!(decor instanceof ViewGroup)) return;
+        View existing = decor.findViewWithTag(TOGGLE_TAG);
+        if (existing instanceof TextView) {
+            refreshToggle(activity);
+            return;
+        }
+        final TextView toggle = new TextView(activity);
+        toggle.setTag(TOGGLE_TAG);
+        toggle.setTextSize(12f);
+        toggle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        toggle.setTextColor(Color.WHITE);
+        toggle.setGravity(Gravity.CENTER);
+        toggle.setPadding(dp(activity, 14), dp(activity, 9), dp(activity, 14), dp(activity, 9));
+        toggle.setElevation(dp(activity, 7));
+        toggle.setClickable(true);
+        toggle.setFocusable(true);
+        toggle.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                toggleExtension(activity);
+            }
+        });
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(activity, 42), Gravity.TOP | Gravity.END);
+        params.topMargin = dp(activity, 74);
+        params.rightMargin = dp(activity, 12);
+        ((ViewGroup) decor).addView(toggle, params);
+        refreshToggle(activity);
+    }
+
+    private void refreshToggle(Activity activity) {
+        if (activity == null || activity.isFinishing()) return;
+        View decor = activity.getWindow().getDecorView();
+        View found = decor.findViewWithTag(TOGGLE_TAG);
+        if (!(found instanceof TextView)) return;
+        boolean enabled = isExtensionEnabled();
+        TextView toggle = (TextView) found;
+        String label;
+        int color;
+        if (!enabled) {
+            label = "EXTENSION  OFF";
+            color = Color.rgb(92, 99, 112);
+        } else if (scannedWebViews == 0) {
+            label = "EXTENSION  ON  •  NO WEBVIEW";
+            color = Color.rgb(190, 105, 28);
+        } else if (allowedWebViews == 0) {
+            label = "EXTENSION  ON  •  OPEN ARB PAGE";
+            color = Color.rgb(190, 105, 28);
+        } else {
+            label = "EXTENSION  ON  •  ARB PAGE FOUND";
+            color = Color.rgb(29, 137, 87);
+        }
+        toggle.setText(label);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(activity, 20));
+        bg.setStroke(dp(activity, 1), Color.argb(90, 255, 255, 255));
+        toggle.setBackground(bg);
+        toggle.setContentDescription(enabled ? "Turn ARB extension off" : "Turn ARB extension on");
+    }
+
+    private void toggleExtension(Activity activity) {
+        Context ctx = getContext();
+        if (ctx == null || activity == null) return;
+        boolean enabled = !isExtensionEnabled();
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_ENABLED, enabled).apply();
+        injected.clear();
+        reloadAllowedWebViews(activity.getWindow().getDecorView());
+        refreshToggle(activity);
+        String message;
+        if (!enabled) {
+            message = "ARB Extension OFF. Current ARB page will reload without the extension.";
+        } else if (scannedWebViews == 0) {
+            message = "ARB Extension ON. No WebView found on this screen.";
+        } else if (allowedWebViews == 0) {
+            message = "ARB Extension ON. Open the ARB Buy page; this screen's domain is not in the allowlist.";
+        } else {
+            message = "ARB Extension ON. Reloading the ARB page so scripts can attach.";
+        }
+        Toast.makeText(activity, message, Toast.LENGTH_LONG).show();
+    }
+
+    private void reloadAllowedWebViews(View view) {
+        if (view instanceof WebView) {
+            final WebView webView = (WebView) view;
+            if (isAllowed(webView.getUrl())) {
+                webView.postDelayed(new Runnable() {
+                    @Override public void run() {
+                        try { webView.reload(); }
+                        catch (Exception e) { Log.w(TAG, "WebView reload after extension toggle failed", e); }
+                    }
+                }, 180L);
+            }
+            return;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) reloadAllowedWebViews(group.getChildAt(i));
+        }
+    }
+
+    private int dp(Activity activity, int value) {
+        return (int) (value * activity.getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private boolean isAllowed(String url) {

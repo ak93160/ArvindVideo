@@ -34,6 +34,12 @@ jobs:
           yes | sdkmanager --licenses >/dev/null
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Restore stable debug signing key
+        run: |
+          set -euo pipefail
+          base64 --decode browser/ci-debug.keystore.b64 > browser/ci-debug.keystore
+          test -s browser/ci-debug.keystore
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -58,25 +64,35 @@ jobs:
       - name: Build browser APK
         run: gradle --no-daemon -p browser :app:assembleDebug
 
+      - name: Validate APK before publishing
+        run: |
+          set -euo pipefail
+          APK="browser/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -t "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | head -n 8
+          cp "$APK" browser/app/build/outputs/apk/debug/ARB-Browser-Install-Fix.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ARB-Browser-APK
-          path: browser/app/build/outputs/apk/debug/app-debug.apk
+          name: ARB-Browser-Install-Fix
+          path: browser/app/build/outputs/apk/debug/ARB-Browser-Install-Fix.apk
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish browser APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: arb-browser-build-${{ github.run_number }}
-          name: ARB Browser APK ${{ github.run_number }}
+          tag_name: arb-browser-install-fix-${{ github.run_number }}
+          name: ARB Browser Install Fix ${{ github.run_number }}
           body: |
-            Standalone GeckoView-based Android browser with the owner-provided XPI bundled as a built-in WebExtension.
-
-            - Startup Website is editable from the browser menu and is remembered between launches.
-            - The included XPI is unpacked and installed as a built-in extension; it does not need Mozilla signing.
-            - Future external XPI installs through GeckoView's normal installer require Mozilla-signed packages.
-            - Compatibility depends on the extension's WebExtension APIs; unsupported browser APIs may not work.
-          files: browser/app/build/outputs/apk/debug/app-debug.apk
+            Rebuilt ARM64 GeckoView browser with:
+            - A clean package ID to avoid conflicts with earlier experimental packages.
+            - A stable debug signing certificate and both legacy and modern APK signatures.
+            - APK ZIP, signature, alignment, and package metadata validation before release.
+            - The included XPI and saved Startup Website setting.
+          files: browser/app/build/outputs/apk/debug/ARB-Browser-Install-Fix.apk
           fail_on_unmatched_files: true

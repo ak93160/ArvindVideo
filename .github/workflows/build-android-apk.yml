@@ -95,6 +95,7 @@ jobs:
       # Background polling keeps the OTP UPI fragment reference when the user moves to another app page.
       # Provider selection is stored before the run; polling stops on a detected QR payment screen.
       # QR overlay stores its drag position and exports the displayed QR image to Pictures/ARB QR.
+      # Final QR guard also runs when the bot has stopped, so the Save QR control remains available.
       - name: Decode target APK and stage extension
         run: |
           java -Xmx5g -jar build/apktool.jar d -f build/input/base.apk -o build/decoded

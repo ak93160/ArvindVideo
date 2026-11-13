@@ -1,6 +1,10 @@
 name: Build ARB Android APK
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-android-apk.yml'
   release:
     types: [published]
   workflow_dispatch:
@@ -62,12 +66,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/input
-          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
-            gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --pattern "base.apk" --pattern "extension.xpi" --dir build/input
-          else
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             curl --fail --location --retry 3 "$BASE_APK_URL" -o build/input/base.apk
             curl --fail --location --retry 3 "$EXTENSION_XPI_URL" -o build/input/extension.xpi
+          else
+            INPUT_TAG="$GITHUB_REF_NAME"
+            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then INPUT_TAG="arb-inputs-v1"; fi
+            gh release download "$INPUT_TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "base.apk" --pattern "extension.xpi" --dir build/input
           fi
           test -s build/input/base.apk
           test -s build/input/extension.xpi

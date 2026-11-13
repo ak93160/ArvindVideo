@@ -22,7 +22,7 @@ def main():
 
     with zipfile.ZipFile(args.xpi) as zf:
         names = set(zf.namelist())
-        required = ['content.js', 'background.js', 'page-hook.js', 'SERVER_ENDPOINT.js', 'alert.wav',
+        required = ['content.js', 'background.js', 'page-hook.js', 'SERVER_ENDPOINT.js', 'popup.html', 'popup.js', 'manifest.json', 'alert.wav',
                     'icons/icon16.png', 'icons/icon48.png', 'icons/icon128.png', 'icons/icon_nobg.png']
         missing = [p for p in required if p not in names]
         if missing:

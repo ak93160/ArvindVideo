@@ -64,19 +64,27 @@
     __fireInstalled() { dispatch(listeners.installed, [{reason: 'install'}]); },
     __fireTabUpdated() { dispatch(listeners.tabUpdated, [1, {status: 'complete'}, {id: 1, url: native ? native.currentUrl() : ''}]); },
     sendMessage(message, callback) {
-      let replied = false, response;
+      let replied = false;
       let wantsAsync = false;
       const pending = [];
-      const finish = value => { if (replied) return; replied = true; response = value; if (callback) callback(value); };
+      let resolvePromise;
+      const promise = new Promise(resolve => { resolvePromise = resolve; });
+      const finish = value => {
+        if (replied) return;
+        replied = true;
+        resolvePromise(value);
+        if (typeof callback === 'function') callback(value);
+      };
       listeners.runtime.slice().forEach(fn => {
         try {
           const result = fn(message, {id: 'arb-android-webview', tab: {id: 1, url: native ? native.currentUrl() : ''}}, finish);
           if (result === true) wantsAsync = true;
-          else if (result && typeof result.then === 'function') pending.push(result.then(finish));
+          else if (result && typeof result.then === 'function') pending.push(result.then(finish).catch(e => console.warn('[ARB async message]', e)));
         } catch (e) { console.error('[ARB message]', e); }
       });
-      if (!pending.length && !wantsAsync && !replied) finish(undefined);
-      return Promise.all(pending).then(() => response);
+      if (!pending.length && !wantsAsync && !replied) queueMicrotask(() => finish(undefined));
+      if (wantsAsync || pending.length) setTimeout(() => finish(undefined), 8000);
+      return promise;
     }
   };
   const tabs = {

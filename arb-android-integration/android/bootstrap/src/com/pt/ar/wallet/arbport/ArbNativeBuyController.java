@@ -177,7 +177,7 @@ public final class ArbNativeBuyController {
             if (!(fragmentView instanceof View) || !((View) fragmentView).isShown()) return;
 
             Method refresh = findMethod(fragment.getClass(), "refreshBuyList", 0);
-            if (refresh != null) {
+            if (refresh != null && !"BaseBuyFragment".equals(refresh.getDeclaringClass().getSimpleName())) {
                 refresh.setAccessible(true);
                 refresh.invoke(fragment);
                 lastRefreshAt = System.currentTimeMillis();

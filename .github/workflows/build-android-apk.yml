@@ -1,0 +1,138 @@
+name: Build ARB Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_apk_url:
+        description: Direct GitHub Release asset URL for the first APK (base.apk)
+        required: true
+        type: string
+      extension_xpi_url:
+        description: Direct GitHub Release asset URL for Arvind_Bot_Standalone_NoLicenseJS.xpi
+        required: true
+        type: string
+      release_tag:
+        description: Output release tag (leave blank for an automatic tag)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  APKTOOL_VERSION: '3.0.3'
+  ANDROID_API: '35'
+  BUILD_TOOLS: '35.0.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: arb-android-integration
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform tools
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${BUILD_TOOLS}"
+
+      - name: Download input APK and XPI
+        env:
+          BASE_APK_URL: ${{ inputs.base_apk_url }}
+          EXTENSION_XPI_URL: ${{ inputs.extension_xpi_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/input
+          curl --fail --location --retry 3 "$BASE_APK_URL" -o build/input/base.apk
+          curl --fail --location --retry 3 "$EXTENSION_XPI_URL" -o build/input/extension.xpi
+          file build/input/base.apk build/input/extension.xpi
+          unzip -t build/input/base.apk >/dev/null
+          unzip -t build/input/extension.xpi >/dev/null
+
+      - name: Install APKTool
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/iBotPeaches/Apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar" \
+            -o build/apktool.jar
+          java -jar build/apktool.jar --version
+
+      - name: Decode target APK and stage extension
+        run: |
+          java -Xmx5g -jar build/apktool.jar d -f build/input/base.apk -o build/decoded
+          python3 scripts/patch_target.py \
+            --decoded build/decoded \
+            --xpi build/input/extension.xpi \
+            --shim android/extension-shim.js
+
+      - name: Compile Android bootstrap DEX
+        run: |
+          set -euo pipefail
+          mkdir -p build/bootstrap/classes build/bootstrap/dex
+          ANDROID_JAR="$ANDROID_HOME/platforms/android-${ANDROID_API}/android.jar"
+          javac -source 8 -target 8 -bootclasspath "$ANDROID_JAR" \
+            -d build/bootstrap/classes \
+            $(find android/bootstrap/src -name '*.java' -print)
+          "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/d8" \
+            --lib "$ANDROID_JAR" --min-api 23 \
+            --output build/bootstrap/dex \
+            $(find build/bootstrap/classes -name '*.class' -print)
+          test -s build/bootstrap/dex/classes.dex
+
+      - name: Rebuild APK and inject bootstrap DEX
+        run: |
+          set -euo pipefail
+          java -Xmx5g -jar build/apktool.jar b build/decoded -o build/unsigned.apk
+          python3 scripts/inject_dex.py build/unsigned.apk build/bootstrap/dex/classes.dex
+          "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/zipalign" -f 4 build/unsigned.apk build/aligned.apk
+
+      - name: Sign APK
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v -keystore build/arb-build.jks \
+            -storepass changeit -keypass changeit -alias arb-build \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=ARB Android Build, OU=Local Build, O=Owner, L=NA, S=NA, C=IN"
+          "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/apksigner" sign \
+            --ks build/arb-build.jks --ks-key-alias arb-build \
+            --ks-pass pass:changeit --key-pass pass:changeit \
+            --out build/ArvindARB-Automation.apk build/aligned.apk
+          "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/apksigner" verify --verbose build/ArvindARB-Automation.apk
+          sha256sum build/ArvindARB-Automation.apk | tee build/SHA256SUMS.txt
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArvindARB-Automation-APK
+          path: |
+            build/ArvindARB-Automation.apk
+            build/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || format('arb-android-build-{0}', github.run_number) }}
+          name: ArvindARB Automation APK ${{ github.run_number }}
+          body: |
+            APK rebuilt from the owner-provided base APK and XPI.
+
+            - Payment is manual; this build does not enter OTP/PIN or submit payment.
+            - The APK is signed with a temporary CI key. Uninstall the original app before installing if signatures differ.
+            - Test WebView injection and all desired extension features on-device before relying on it.
+          files: |
+            build/ArvindARB-Automation.apk
+            build/SHA256SUMS.txt
+          fail_on_unmatched_files: true

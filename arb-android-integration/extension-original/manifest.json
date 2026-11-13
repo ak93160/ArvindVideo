@@ -1,0 +1,73 @@
+{
+  "manifest_version": 3,
+  "name": "Arvind Bot",
+  "version": "4.5.1",
+  "version_name": "4.5.1",
+  "description": "Auto-clicks Buy on ARBPay — price range & exact mode, speed control, open payment selector, capture dashboard.",
+  "author": "Bibekjyoti Deb",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "alarms",
+    "notifications",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*/*"
+      ],
+      "js": [
+        "page-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "alert.wav",
+        "icons/icon_nobg.png"
+      ],
+      "matches": [
+        "https://*/*"
+      ]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "arb-buying-bot-local@extension.invalid",
+      "strict_min_version": "128.0"
+    }
+  }
+}

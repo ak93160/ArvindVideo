@@ -44,51 +44,43 @@ jobs:
           unzip -q build/jadx.zip -d build/jadx-bin
           test -x build/jadx-bin/bin/jadx
 
-      - name: Decompile original APK
-        run: |
-          set -euo pipefail
-          build/jadx-bin/bin/jadx -d build/decompiled build/input/base.apk
-
-      - name: Prepare focused native Buy report
+      - name: Decompile focused native Buy classes
         run: |
           set -euo pipefail
           mkdir -p build/focused
-          SRC=build/decompiled/sources/com/pt/ar/wallet
-          for f in \
-            home/buy/activity/BuyActivity.java \
-            home/buy/activity/BuyInfoSplitOrderActivity.java \
-            home/buy/activity/BuyInfoConfirmOrderActivity.java \
-            home/buy/activity/BuyUpiOrderStep1Activity.java \
-            home/buy/activity/BuyUpiOrderStep2Activity.java \
-            home/buy/activity/BuyBankOrderStep1Activity.java \
-            home/buy/activity/BuyBankOrderStep2Activity.java \
-            home/activity/MainActivity.java \
-            home/activity/WebCommonActivity.java; do
-              if [[ -f "$SRC/$f" ]]; then
-                mkdir -p "build/focused/$(dirname "$f")"
-                cp "$SRC/$f" "build/focused/$f"
-              fi
-            done
+          classes=(
+            com.pt.ar.wallet.home.buy.activity.BuyActivity
+            com.pt.ar.wallet.home.buy.fragment.BaseBuyFragment
+            com.pt.ar.wallet.home.buy.fragment.AutoBuyFragment
+            com.pt.ar.wallet.home.buy.fragment.OtpUPIBuyFragment
+            com.pt.ar.wallet.home.buy.fragment.BankBuyFragment
+            com.pt.ar.wallet.home.buy.fragment.UPIBuyFragment
+            com.pt.ar.wallet.home.buy.adapter.BuyOptionalNewAdapter
+            com.pt.ar.wallet.home.buy.adapter.BuyTabFragmentAdapter
+            com.pt.ar.wallet.home.buy.model.BuyModel
+            com.pt.ar.wallet.home.buy.api.ApiBuyService
+          )
+          for cls in "${classes[@]}"; do
+            name="${cls##*.}"
+            echo "Decompiling $cls"
+            build/jadx-bin/bin/jadx --no-res --quiet --single-class "$cls" \
+              --single-class-output "build/focused/$name.java" \
+              build/input/base.apk || true
+          done
           {
-            echo "# Original APK: Native Buy screen investigation"
+            echo "# Original APK: focused native Buy source"
             echo
-            echo "- Input: owner-uploaded `base.apk` from release `arb-inputs-v1`"
             echo "- Package: `com.pt.ar.wallet`"
-            echo "- Decompiled using JADX 1.5.6"
+            echo "- JADX: 1.5.6"
+            echo "- Focus: BuyActivity, AutoBuy/UPI/OTP-UPI/Bank fragments, adapter and model"
             echo
-            echo "## Relevant classes"
-            find "$SRC/home" -type f -name '*.java' | sed "s#$SRC/##" | grep -E '(^buy/|MainActivity|WebCommon)' | sort | head -200
-            echo
-            echo "## WebView / list / tab references in Buy package"
-            grep -RniE 'WebView|RecyclerView|ViewPager|TabLayout|BuyActivity|onClick|setOnClickListener|Order' "$SRC/home/buy" \
-              --include='*.java' | head -260 || true
-            echo
-            echo "## BuyActivity source"
-            if [[ -f "$SRC/home/buy/activity/BuyActivity.java" ]]; then
-              sed -n '1,320p' "$SRC/home/buy/activity/BuyActivity.java"
-            else
-              echo "BuyActivity.java not emitted by JADX."
-            fi
+            echo "## Decompiled files"
+            ls -lh build/focused/*.java
+            for f in build/focused/*.java; do
+              echo
+              echo "## $f"
+              sed -n '1,340p' "$f"
+            done
           } > build/focused/REPORT.md
           cat build/focused/REPORT.md
 

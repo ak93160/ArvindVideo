@@ -92,7 +92,13 @@ public final class ArbNativeBridge {
     public void navigate(String url) {
         try {
             Uri uri = Uri.parse(url == null ? "" : url);
-            if ("https".equalsIgnoreCase(uri.getScheme()) && isAllowedHost(uri.getHost())) webView.post(() -> webView.loadUrl(uri.toString()));
+            if ("https".equalsIgnoreCase(uri.getScheme()) && isAllowedHost(uri.getHost())) {
+                webView.post(new Runnable() {
+                    @Override public void run() {
+                        webView.loadUrl(uri.toString());
+                    }
+                });
+            }
         } catch (Exception ignored) { }
     }
 

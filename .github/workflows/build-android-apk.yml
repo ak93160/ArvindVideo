@@ -101,6 +101,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/bootstrap/classes build/bootstrap/dex
           ANDROID_JAR="$ANDROID_HOME/platforms/android-${ANDROID_API}/android.jar"
+          # Bridge code uses anonymous Runnables to compile cleanly against Android SDK stubs.
           javac -source 8 -target 8 -bootclasspath "$ANDROID_JAR" \
             -d build/bootstrap/classes \
             $(find arb-android-integration/android/bootstrap/src -name '*.java' -print)

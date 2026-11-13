@@ -1,0 +1,22 @@
+name: ARB Android Port - Static Checks
+
+on:
+  push:
+    paths:
+      - "arb-android-integration/**"
+      - ".github/workflows/arb-port-static-checks.yml"
+  pull_request:
+    paths:
+      - "arb-android-integration/**"
+      - ".github/workflows/arb-port-static-checks.yml"
+
+jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check bridge syntax
+        run: node --check arb-android-integration/android/bridge.js

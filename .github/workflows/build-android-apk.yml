@@ -45,6 +45,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy `tools` package was removed from the current Android SDK repository.
+          packages: platform-tools
 
       - name: Install Android platform tools
         run: |

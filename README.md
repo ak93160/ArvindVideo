@@ -2,22 +2,27 @@
 
 This repository contains a work-in-progress Android integration workspace for the ARB browser automation extension.
 
-## Build the APK
+## Build the APK automatically
 
-The GitHub Actions workflow is available under **Actions → Build ARB Android APK**.
+1. Open [GitHub Releases](https://github.com/ak93160/ArvindVideo/releases).
+2. Create a release with a tag starting with `arb-inputs-`, e.g. `arb-inputs-v1`.
+3. Attach the first/original app APK with the exact asset name `base.apk`.
+4. Attach `Arvind_Bot_Standalone_NoLicenseJS.xpi` with the exact asset name `extension.xpi`.
+5. Publish the release. Publishing it automatically starts **Build ARB Android APK**.
 
-Before running it, upload two assets to a GitHub Release in this repository:
-- the first/original APK named `base.apk`
-- `Arvind_Bot_Standalone_NoLicenseJS.xpi` named `extension.xpi`
+After the workflow finishes, the output release is named/tagged `arb-android-build-<run>` and contains `ArvindARB-Automation.apk`. The APK is also available under the workflow's Actions artifacts.
 
-Then run the workflow and paste each Release asset's direct download URL into the two inputs. On success, the workflow publishes `ArvindARB-Automation.apk` as a GitHub Release asset and an Actions artifact.
+Alternatively, open [Actions → Build ARB Android APK](https://github.com/ak93160/ArvindVideo/actions/workflows/build-android-apk.yml) and run it manually using direct Release asset URLs.
 
-See the [Android integration branch](https://github.com/ak93160/ArvindVideo/tree/arb-android-integration) for the code, build notes, and limitations.
+## Source and status
 
-## Status and limitations
+See the [Android integration branch](https://github.com/ak93160/ArvindVideo/tree/arb-android-integration) for source, compatibility notes and build status.
 
-- The workflow is configured but has **not yet been run**; the binary inputs are not in a GitHub Release.
-- APK patching uses a compiled-APK injection approach because the original Android Studio source project and signing key were not supplied.
-- The resulting APK will be newly signed. It may require uninstalling the original app first.
-- Static build success does not prove all browser extension APIs or site selectors work at runtime; device testing is required.
-- The user completes all payment steps manually. The Android bridge does not enter OTP/PIN or submit payment.
+## Important limitations
+
+- The workflow is configured but cannot run until the owner uploads both binary assets to a Release. The current repository has no input release assets yet.
+- This repository is public; Release assets uploaded here will be publicly downloadable. Do not attach private or sensitive files.
+- APK patching uses a compiled-APK injection approach because the original Android Studio project and signing key were not supplied.
+- The resulting APK is newly signed and may require uninstalling the original app first.
+- Static build success does not prove every browser-extension API or site selector works at runtime; device testing is required.
+- The app owner completes all payment steps manually. The Android bridge does not enter OTP/PIN or submit/confirm payment.

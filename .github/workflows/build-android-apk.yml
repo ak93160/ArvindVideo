@@ -1,6 +1,8 @@
 name: Build ARB Android APK
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       base_apk_url:
@@ -26,6 +28,7 @@ env:
 
 jobs:
   build:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'arb-inputs-')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -50,13 +53,21 @@ jobs:
 
       - name: Download input APK and XPI
         env:
+          GH_TOKEN: ${{ github.token }}
           BASE_APK_URL: ${{ inputs.base_apk_url }}
           EXTENSION_XPI_URL: ${{ inputs.extension_xpi_url }}
         run: |
           set -euo pipefail
           mkdir -p build/input
-          curl --fail --location --retry 3 "$BASE_APK_URL" -o build/input/base.apk
-          curl --fail --location --retry 3 "$EXTENSION_XPI_URL" -o build/input/extension.xpi
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --pattern "base.apk" --pattern "extension.xpi" --dir build/input
+          else
+            curl --fail --location --retry 3 "$BASE_APK_URL" -o build/input/base.apk
+            curl --fail --location --retry 3 "$EXTENSION_XPI_URL" -o build/input/extension.xpi
+          fi
+          test -s build/input/base.apk
+          test -s build/input/extension.xpi
           file build/input/base.apk build/input/extension.xpi
           unzip -t build/input/base.apk >/dev/null
           unzip -t build/input/extension.xpi >/dev/null

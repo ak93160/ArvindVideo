@@ -27,7 +27,7 @@ android {
             // Include the legacy v1 signature as well as modern APK signing schemes.
             v1SigningEnabled true
             v2SigningEnabled true
-            v3SigningEnabled true
+            enableV3Signing = true
         }
     }
 

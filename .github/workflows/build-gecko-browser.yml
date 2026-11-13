@@ -61,6 +61,28 @@ jobs:
             --xpi browser/build-input/extension.xpi \
             --out browser/app/src/main/assets/extensions/arbbuyer
 
+      - name: Validate GeckoView extension manifest
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          root = pathlib.Path("browser/app/src/main/assets/extensions/arbbuyer")
+          m = json.loads((root / "manifest.json").read_text())
+          assert m["manifest_version"] == 3, "Expected MV3"
+          assert m["version"] == "4.5.2", "Extension version was not bumped"
+          assert "service_worker" not in m.get("background", {}), "Android GeckoView cannot use the Chrome service worker"
+          assert "background.js" in m.get("background", {}).get("scripts", []), "Firefox event page missing"
+          assert "geckoViewAddons" in m.get("permissions", [])
+          assert "nativeMessaging" in m.get("permissions", [])
+          assert "gecko_android" in m.get("browser_specific_settings", {})
+          for entry in m.get("content_scripts", []):
+              for filename in entry.get("js", []):
+                  assert (root / filename).is_file(), f"Missing content script: {filename}"
+          bg = (root / "background.js").read_text()
+          assert "ARB Browser native toolbar bridge" in bg, "Native toolbar bridge missing"
+          print("GeckoView MV3 event-page manifest validated")
+          print(json.dumps({k:m.get(k) for k in ("version","background","permissions","browser_specific_settings")}, indent=2))
+          PY
+
       - name: Build browser APK
         run: gradle --no-daemon -p browser :app:assembleDebug
 

@@ -150,7 +150,8 @@ public final class ArbNativeBridge {
     private boolean isAllowedHost(String host) {
         if (host == null) return false;
         String h = host.toLowerCase(java.util.Locale.ROOT);
-        String[] roots = {"arbpay.me", "arbpay.ai", "arbpay.vip", "arbpay.top", "arbpay.cc"};
+        String[] roots = {"arbpay.me", "arbpay.ai", "arbpay.vip", "arbpay.top", "arbpay.cc", "arbpay.co",
+            "payvuno.com", "payduno.com", "payzuva.com", "paykexo.com", "paykuno.com", "paywivo.com", "payjora.com"};
         for (String root : roots) if (h.equals(root) || h.endsWith("." + root)) return true;
         return false;
     }

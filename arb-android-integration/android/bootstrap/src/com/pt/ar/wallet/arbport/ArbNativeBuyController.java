@@ -41,6 +41,7 @@ public final class ArbNativeBuyController {
     private static final String PREF_MIN = "native_bot_min";
     private static final String PREF_MAX = "native_bot_max";
     private static final String PREF_LATENCY = "native_bot_latency";
+    private static final String PREF_REFRESH_MS = "native_bot_refresh_ms";
     private static final String BUY_ACTIVITY = "com.pt.ar.wallet.home.buy.activity.BuyActivity";
     private static final String ADAPTER_CLASS = "com.pt.ar.wallet.home.buy.adapter.BuyOptionalNewAdapter";
     private static final String PANEL_TAG = "ARB_NATIVE_BUY_PANEL";
@@ -55,6 +56,7 @@ public final class ArbNativeBuyController {
     private EditText minInput;
     private EditText maxInput;
     private EditText latencyInput;
+    private EditText refreshInput;
     private RadioGroup modeGroup;
     private boolean panelExpanded;
     private boolean botRunning;
@@ -63,7 +65,6 @@ public final class ArbNativeBuyController {
     private long pendingAt;
     private long lastClickedAt;
     private long lastRefreshAt;
-    private static final long AUTO_REFRESH_INTERVAL_MS = 2500L;
     private String diagnostic = "OPEN BUY SCREEN";
     private int adapterCount;
     private int visibleRows;
@@ -116,6 +117,11 @@ public final class ArbNativeBuyController {
         return Math.max(80, Math.min(500, value));
     }
 
+    public long getRefreshIntervalMs() {
+        int value = prefs().getInt(PREF_REFRESH_MS, 2500);
+        return Math.max(10, Math.min(60000, value));
+    }
+
     public void onExtensionToggled(Activity activity, boolean enabled) {
         if (!enabled && botRunning) stopBot("EXTENSION OFF");
         if (activity != null && isBuyActivity(activity)) {
@@ -146,7 +152,7 @@ public final class ArbNativeBuyController {
             updatePanelStatus();
             return;
         }
-        if (botRunning && !pendingClick && System.currentTimeMillis() - lastRefreshAt >= AUTO_REFRESH_INTERVAL_MS) {
+        if (botRunning && !pendingClick && System.currentTimeMillis() - lastRefreshAt >= getRefreshIntervalMs()) {
             refreshVisibleBuyFragment(activity);
         }
         RecyclerScan result = new RecyclerScan();
@@ -526,6 +532,15 @@ public final class ArbNativeBuyController {
         speedRow.addView(latencyInput, new LinearLayout.LayoutParams(dp(activity, 86), dp(activity, 38)));
         panel.addView(speedRow);
 
+        LinearLayout refreshRow = new LinearLayout(activity);
+        refreshRow.setGravity(Gravity.CENTER_VERTICAL);
+        refreshRow.addView(makeText(activity, "Refresh (ms)", 12, Color.DKGRAY, false),
+                new LinearLayout.LayoutParams(0, dp(activity, 36), 1));
+        refreshInput = makeAmountInput(activity, "2500");
+        refreshInput.setText("2500");
+        refreshRow.addView(refreshInput, new LinearLayout.LayoutParams(dp(activity, 86), dp(activity, 38)));
+        panel.addView(refreshRow);
+
         panelStatus = makeText(activity, "Searching for the native Buy list…", 11, Color.rgb(80, 88, 98), false);
         panelStatus.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
         panel.addView(panelStatus);
@@ -560,6 +575,7 @@ public final class ArbNativeBuyController {
         if (minInput != null) minInput.setText(p.getString(PREF_MIN, "500"));
         if (maxInput != null) maxInput.setText(p.getString(PREF_MAX, "900"));
         if (latencyInput != null) latencyInput.setText(String.valueOf(p.getInt(PREF_LATENCY, 200)));
+        if (refreshInput != null) refreshInput.setText(String.valueOf(p.getInt(PREF_REFRESH_MS, 2500)));
         if (modeGroup != null) modeGroup.check("range".equals(p.getString(PREF_MODE, "fixed")) ? 1002 : 1001);
     }
 
@@ -584,7 +600,13 @@ public final class ArbNativeBuyController {
         String min = minInput == null ? "500" : minInput.getText().toString().trim();
         String max = maxInput == null ? "900" : maxInput.getText().toString().trim();
         String latency = latencyInput == null ? "200" : latencyInput.getText().toString().trim();
+        String refresh = refreshInput == null ? "2500" : refreshInput.getText().toString().trim();
         BigDecimal latencyValue = parseAmount(latency);
+        BigDecimal refreshValue = parseAmount(refresh);
+        if (refreshValue == null || refreshValue.compareTo(BigDecimal.valueOf(10)) < 0) {
+            Toast.makeText(activity, "Refresh minimum is 10 ms", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if ("range".equals(mode)) {
             BigDecimal lo = parseAmount(min), hi = parseAmount(max);
             if (lo == null || hi == null || lo.compareTo(BigDecimal.ZERO) <= 0 || lo.compareTo(hi) > 0) {
@@ -601,7 +623,9 @@ public final class ArbNativeBuyController {
         int delay = latencyValue == null ? 200 : Math.max(80, Math.min(5000, latencyValue.intValue()));
         prefs().edit().putString(PREF_MODE, mode).putString(PREF_FIXED, fixed)
                 .putString(PREF_MIN, min).putString(PREF_MAX, max)
-                .putInt(PREF_LATENCY, delay).putBoolean(PREF_BOT, true).apply();
+                .putInt(PREF_LATENCY, delay)
+                .putInt(PREF_REFRESH_MS, Math.max(10, Math.min(60000, refreshValue.intValue())))
+                .putBoolean(PREF_BOT, true).apply();
         botRunning = true;
         pendingClick = false;
         pendingKey = null;

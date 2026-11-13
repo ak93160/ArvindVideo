@@ -1,25 +1,23 @@
 # ARB Android Integration
 
-This is a work-in-progress Android integration workspace for the ARB browser automation extension supplied in this conversation.
+This repository contains a work-in-progress Android integration workspace for the ARB browser automation extension.
 
-## Where the source lives
+## Build the APK
 
-The integration source and compatibility notes are on the **`arb-android-integration`** branch:
+The GitHub Actions workflow is available under **Actions → Build ARB Android APK**.
 
-- [Open the integration source folder](https://github.com/ak93160/ArvindVideo/tree/arb-android-integration/arb-android-integration)
-- [Build status](https://github.com/ak93160/ArvindVideo/blob/arb-android-integration/arb-android-integration/docs/build-status.md)
-- [Compatibility map](https://github.com/ak93160/ArvindVideo/blob/arb-android-integration/arb-android-integration/docs/compatibility-map.md)
+Before running it, upload two assets to a GitHub Release in this repository:
+- the first/original APK named `base.apk`
+- `Arvind_Bot_Standalone_NoLicenseJS.xpi` named `extension.xpi`
 
-## Current status
+Then run the workflow and paste each Release asset's direct download URL into the two inputs. On success, the workflow publishes `ArvindARB-Automation.apk` as a GitHub Release asset and an Actions artifact.
 
-- Target APK statically inspected: 59.4 MB, four DEX files.
-- The target app contains native ARB wallet auto-order-grabbing code and Android WebView classes.
-- The supplied XPI is Manifest V3 and has content, popup, background, and page-hook scripts.
-- The XPI manifest references `license.js`, but that file was not present in the supplied archive.
-- A complete installable APK has **not** been built.
+See the [Android integration branch](https://github.com/ak93160/ArvindVideo/tree/arb-android-integration) for the code, build notes, and limitations.
 
-## Privacy and payment boundary
+## Status and limitations
 
-This repository does not contain the uploaded APKs, signing keys, account data, or a redistribution copy of the full supplied extension. The extension's popup/background APIs still need a complete Android host implementation.
-
-The app owner performs all payment actions manually. The integration must not enter UPI PINs or OTPs, submit payments, or confirm transactions.
+- The workflow is configured but has **not yet been run**; the binary inputs are not in a GitHub Release.
+- APK patching uses a compiled-APK injection approach because the original Android Studio source project and signing key were not supplied.
+- The resulting APK will be newly signed. It may require uninstalling the original app first.
+- Static build success does not prove all browser extension APIs or site selectors work at runtime; device testing is required.
+- The user completes all payment steps manually. The Android bridge does not enter OTP/PIN or submit payment.

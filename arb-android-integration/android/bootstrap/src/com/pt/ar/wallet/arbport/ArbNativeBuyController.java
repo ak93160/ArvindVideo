@@ -106,6 +106,7 @@ public final class ArbNativeBuyController {
 
     public String getDiagnostic() { return diagnostic; }
     public int getAdapterCount() { return adapterCount; }
+    public boolean isBotRunning() { return botRunning; }
     public int getVisibleRows() { return visibleRows; }
 
     public long getScanIntervalMs() {

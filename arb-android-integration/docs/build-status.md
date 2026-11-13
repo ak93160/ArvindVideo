@@ -1,31 +1,45 @@
 # Build status — 13 November 2026
 
-## Completed this turn
+## Inputs inspected
 
-- Inspected the uploaded target APK, feature APK and XPI.
-- Confirmed the supplied XPI has a standalone build path already present in its own sources:
-  - `content.js`: widget license enforcement calls back as allowed in standalone mode.
-  - `popup.js`: startup `initLicenseCheck()` opens the main screen and sets the local tier to premium.
-  - `background.js`: `revalidateLicenseNow()` returns immediately in standalone mode.
-- The XPI's manifest referred to `license.js`, but the uploaded archive did not contain that file.
-- Removed only the dangling `license.js` content-script reference from the corrected standalone manifest. No extension JavaScript, UI, speed options, payment selector, or automation feature flags were changed.
-- Created a corrected local XPI: `Arvind_Bot_Standalone_NoLicenseJS.xpi`.
-- Verified the manifest references only files present in the XPI.
-- `node --check` passed for `background.js`, `content.js`, `popup.js`, `page-hook.js`, and `SERVER_ENDPOINT.js`.
+- Target APK: 59.4 MiB, four DEX files. Static markers identify package `com.pt.ar.wallet`, existing ARB auto-order-grabbing classes, WebView/AgentWeb components, and the app's `domain.json`.
+- Feature APK: 5.9 MiB, Kotlin/Firebase based; inspected for feature discovery only.
+- XPI: Manifest V3, version 4.5.1. It contains `content.js`, `background.js`, `popup.js`, `popup.html`, `page-hook.js`, `SERVER_ENDPOINT.js`, icons and sound.
 
-## Android port source
+## Checks run locally
 
-- Partial JavaScript and Kotlin WebView bridge/installer scaffolds are included in this branch.
-- The bridge has not been connected to the target app's actual AgentWeb lifecycle.
-- MAIN-world `page-hook.js` document-start injection is not implemented.
-- Full Android replacements for MV3 background/service worker, tabs, alarms, notifications, identity, and popup/action are not complete.
+- `node --check content.js`: PASS
+- `node --check background.js`: PASS
+- `node --check popup.js`: PASS
+- `node --check page-hook.js`: PASS
+- `node --check SERVER_ENDPOINT.js`: PASS
+- Android shim JavaScript syntax: PASS
+- Python patch/staging script syntax: PASS
+- Synthetic manifest patch + XPI asset staging: PASS
+- Synthetic additional-DEX ZIP injection: PASS
 
-## Not completed
+## GitHub build pipeline
 
-- The first APK has not been patched, rebuilt, signed, installed, or runtime-tested.
-- Original Android Studio project and signing key were not supplied.
-- This environment has no `apktool`, `jadx`, Android SDK build tools or Gradle, and network access could not resolve tool downloads.
+- Added `.github/workflows/build-android-apk.yml` to both `main` and `arb-android-integration`.
+- Workflow decodes the owner-supplied APK with APKTool, copies the XPI assets, adds a bootstrap ContentProvider and DEX, rebuilds, aligns and signs, then publishes an APK Release asset.
+- **The workflow has not yet been run.** The first APK and corrected XPI must first be uploaded as Release assets and their direct download URLs supplied to the manual workflow inputs.
+
+## Integration source
+
+- `android/extension-shim.js`: partial Chrome storage/runtime/tabs/alarms/notifications shim.
+- `android/bootstrap/src/.../ArbNativeBridge.java`: minimal storage, navigation, notification and asset bridge.
+- `android/bootstrap/src/.../ArbBootstrapProvider.java`: scans the app's Activity view trees and injects scripts into allowlisted ARBPay WebViews after page load.
+- `scripts/patch_target.py` and `scripts/inject_dex.py`: APK patching helpers.
+
+## Important remaining limitations
+
+1. The original Android Studio source project and original signing key were not supplied.
+2. The APK patch uses a ContentProvider/ActivityLifecycleCallbacks WebView scan. It has not been runtime-tested on the target device.
+3. `page-hook.js` is injected after page load, not at WebView document-start. Initial network/WebSocket events may be missed.
+4. Popup HTML/JS is included as assets, but the browser's toolbar popup is not hosted as a native Android screen.
+5. MV3 APIs are shimmed only in part. This is not a complete browser runtime.
+6. APK signing uses a new CI key; the modified app may require uninstalling the original app first.
 
 ## Payment boundary
 
-The intended automation reaches the visible Buy/order controls and configured payment-method selection. The user manually handles OTP/PIN entry and final payment transfer/confirmation.
+The intended automation reaches visible Buy/order controls and configured payment-method selection. The app owner manually handles OTP/PIN entry and final payment transfer/confirmation.

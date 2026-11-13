@@ -8,6 +8,7 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -172,14 +173,17 @@ public final class MainActivity extends Activity {
                         @Override
                         public void onConnect(WebExtension.Port port) {
                             nativePort = port;
+                            Log.i("ARB_BROWSER", "Native extension port connected");
                             port.setDelegate(new WebExtension.PortDelegate() {
                                 @Override
                                 public void onPortMessage(Object message, WebExtension.Port source) {
-                                    // Future extension-to-browser status messages.
+                                    Log.d("ARB_BROWSER", "Extension message: " + String.valueOf(message));
                                 }
                                 @Override
                                 public void onDisconnect(WebExtension.Port source) {
+                                    Log.w("ARB_BROWSER", "Native extension port disconnected");
                                     if (nativePort == source) nativePort = null;
+                                    runOnUiThread(() -> extensionStatus.setText("Extension control channel disconnected"));
                                 }
                             });
                             runOnUiThread(() -> extensionStatus.setText("Extension active · toolbar ready"));
@@ -189,8 +193,10 @@ public final class MainActivity extends Activity {
                     openHomePage();
                 }), error -> runOnUiThread(() -> {
                     extensionReady = false;
-                    extensionStatus.setText("Extension could not load");
-                    Toast.makeText(this, "XPI error: " + error.getMessage(), Toast.LENGTH_LONG).show();
+                    Log.e("ARB_BROWSER", "Built-in XPI installation failed", error);
+                    String detail = error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage());
+                    extensionStatus.setText("Extension error: " + detail);
+                    Toast.makeText(this, "XPI error: " + detail, Toast.LENGTH_LONG).show();
                     openHomePage();
                 }));
     }

@@ -59,10 +59,24 @@ def main():
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
     if manifest.get("manifest_version") not in (2, 3):
         raise SystemExit("Only WebExtension manifest_version 2 or 3 is supported")
-    if not manifest.get("version"):
-        manifest["version"] = "1.0.0"
     if not manifest.get("name"):
         manifest["name"] = "ARB Buyer Extension"
+
+    # Ensure GeckoView replaces any same-ID extension left behind by the
+    # previous browser build. ensureBuiltIn skips equal versions.
+    manifest["version"] = "4.5.2"
+    manifest["version_name"] = "4.5.2"
+
+    # Firefox/GeckoView on Android does not run MV3 background service workers.
+    # Convert Chrome's service_worker entry to Firefox's MV3 event-page scripts.
+    background = manifest.setdefault("background", {})
+    worker = background.pop("service_worker", None)
+    if worker:
+        scripts = background.get("scripts", [])
+        if worker not in scripts:
+            scripts.append(worker)
+        background["scripts"] = scripts
+    background.pop("type", None)
 
     # Remove references to files absent from the supplied XPI. The supplied
     # package references license.js, but that file is not present; GeckoView
@@ -76,14 +90,19 @@ def main():
     # Native messaging is used only for the browser's local toolbar controls.
     # This is available to bundled GeckoView extensions.
     permissions = manifest.setdefault("permissions", [])
+    # The native app bridge is a privileged GeckoView API. Native messaging
+    # from content scripts is not used by this build, so do not grant it.
     for permission in ("geckoViewAddons", "nativeMessaging"):
         if permission not in permissions:
             permissions.append(permission)
+    # The browser UI replaces the original extension popup, which depends on
+    # Chrome's identity sign-in flow and is not part of this GeckoView surface.
+    manifest["permissions"] = [p for p in permissions if p != "identity"]
 
     # Bridge the browser's native toolbar to the extension's existing settings
     # and start/stop engine. Only explicitly supported settings are accepted.
     background = manifest.get("background", {})
-    worker = background.get("service_worker")
+    worker = background.get("service_worker") or next(iter(background.get("scripts", [])), None)
     if worker:
         worker_file = output / worker
         bridge = r"""
@@ -126,6 +145,10 @@ try {
     browser = manifest.setdefault("browser_specific_settings", {})
     gecko = browser.setdefault("gecko", {})
     gecko["id"] = FIXED_ID
+    # Explicitly declare Android Gecko support for Firefox/GeckoView consumers.
+    manifest["browser_specific_settings"].setdefault(
+        "gecko_android", {"strict_min_version": "128.0"}
+    )
     applications = manifest.setdefault("applications", {})
     old_gecko = applications.setdefault("gecko", {})
     old_gecko["id"] = FIXED_ID

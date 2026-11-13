@@ -10,3 +10,7 @@ The supplied XPI source pack preserves the extension's JavaScript, UI, settings,
 - Notification sound and extension icons: `alert.wav`, `icons/`
 
 The source contains standalone startup paths. Removing the dangling manifest reference does not itself make a Firefox/Chrome extension run as an Android app. Full Android WebView API compatibility and target APK integration remain incomplete.
+
+## Android app toggle
+
+A native in-app `EXTENSION ON/OFF` pill is added to the app window. It persists the enabled state in Android SharedPreferences. When OFF, matching WebViews are reloaded without injection. When ON, a matching ARBPay WebView is reloaded and the bootstrap injects on the next page load. The label reports `NO WEBVIEW`, `OPEN ARB PAGE`, or `ARB PAGE FOUND` to distinguish app-screen and domain-detection failures. This still requires on-device verification.

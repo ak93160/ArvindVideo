@@ -91,9 +91,10 @@ jobs:
       # Host allowlist and bootstrap fixes live on arb-android-integration; checkout that branch above.
       # The Android bootstrap also provides a persistent in-app Extension ON/OFF control.
       # Native Buy screens are scanned through their BuyOptionalNewAdapter rows; OTP/PIN/payment remain manual.
-      # The visible native Buy tab is refreshed automatically every 2.5 seconds while matching.
-      # AutoBuy/UPI inherit a no-op refresh hook; their existing ViewModel list request is invoked instead.
-      # Refresh interval is user-configurable in milliseconds (minimum 10 ms).
+      # OTP UPI list polling uses a saved, live-updated Refresh (ms) interval while the app stays in the foreground.
+      # Background polling keeps the OTP UPI fragment reference when the user moves to another app page.
+      # Provider selection is stored before the run; polling stops on a detected QR payment screen.
+      # QR overlay stores its drag position and exports the displayed QR image to Pictures/ARB QR.
       - name: Decode target APK and stage extension
         run: |
           java -Xmx5g -jar build/apktool.jar d -f build/input/base.apk -o build/decoded
@@ -158,7 +159,8 @@ jobs:
 
             - Payment is manual; this build does not enter OTP/PIN or submit payment.
             - The APK is signed with a temporary CI key. Uninstall the original app before installing if signatures differ.
-            - Test WebView injection and all desired extension features on-device before relying on it.
+            - OTP UPI background polling, provider auto-selection, and QR detection are heuristic native integrations; verify their behavior on-device before relying on them.
+            - QR save uses the visible QR ImageView and stores it in Pictures/ARB QR with detected Order ID and timestamp.
           files: |
             build/ArvindARB-Automation.apk
             build/SHA256SUMS.txt

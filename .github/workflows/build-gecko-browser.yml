@@ -1,0 +1,73 @@
+name: Build ARB Gecko Browser
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'browser/**'
+      - '.github/workflows/build-gecko-browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Download the existing XPI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p browser/build-input
+          gh release download arb-inputs-v1 --repo "${GITHUB_REPOSITORY}" \
+            --pattern "extension.xpi" --dir browser/build-input
+          test -s browser/build-input/extension.xpi
+
+      - name: Prepare bundled XPI
+        run: |
+          python3 browser/scripts/prepare_extension.py \
+            --xpi browser/build-input/extension.xpi \
+            --out browser/app/src/main/assets/extensions/arbbuyer
+
+      - name: Build browser APK
+        run: gradle --no-daemon -p browser :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARB-Browser-APK
+          path: browser/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish browser APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: arb-browser-build-${{ github.run_number }}
+          name: ARB Browser APK ${{ github.run_number }}
+          body: |
+            Standalone GeckoView-based Android browser with the owner-provided XPI bundled as a built-in WebExtension.
+
+            - Startup Website is editable from the browser menu and is remembered between launches.
+            - The included XPI is unpacked and installed as a built-in extension; it does not need Mozilla signing.
+            - Future external XPI installs through GeckoView's normal installer require Mozilla-signed packages.
+            - Compatibility depends on the extension's WebExtension APIs; unsupported browser APIs may not work.
+          files: browser/app/build/outputs/apk/debug/app-debug.apk
+          fail_on_unmatched_files: true

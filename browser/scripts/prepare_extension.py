@@ -102,7 +102,7 @@ def main():
     # Bridge the browser's native toolbar to the extension's existing settings
     # and start/stop engine. Only explicitly supported settings are accepted.
     background = manifest.get("background", {})
-    worker = background.get("service_worker")
+    worker = background.get("service_worker") or next(iter(background.get("scripts", [])), None)
     if worker:
         worker_file = output / worker
         bridge = r"""

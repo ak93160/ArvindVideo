@@ -161,6 +161,13 @@ public final class ArbNativeBuyController {
 
     public void scan(Activity activity) {
         if (activity == null || activity.isFinishing()) return;
+        ImageView qrOnCurrentScreen = findQrImageView(activity.getWindow().getDecorView());
+        if (qrOnCurrentScreen != null && qrOnCurrentScreen.isShown()
+                && isQrPaymentScreen(activity, activity.getWindow().getDecorView())) {
+            if (botRunning) stopBot("QR SCREEN FOUND · BOT STOPPED");
+            ArbQrSaveOverlay.show(activity, qrOnCurrentScreen);
+            return;
+        }
         if (!isEnabled()) {
             if (botRunning) stopBot("EXTENSION OFF");
             diagnostic = "EXTENSION OFF";
@@ -188,7 +195,6 @@ public final class ArbNativeBuyController {
         Object fragmentView = invokeObject(fragment, "getView");
         RecyclerScan result = new RecyclerScan();
         if (fragmentView instanceof View) scanView((View) fragmentView, result);
-        if (result.adapterCount == 0) scanView(activity.getWindow().getDecorView(), result);
         adapterCount = result.adapterCount;
         visibleRows = result.visibleRows;
         diagnostic = adapterCount == 0 ? "OTP UPI LIST SEARCHING" : "OTP UPI LIST FOUND · " + adapterCount;
@@ -290,8 +296,9 @@ public final class ArbNativeBuyController {
         if (providerSelectionDone) return;
         String screen = activity.getClass().getName().toLowerCase(java.util.Locale.ROOT);
         View root = activity.getWindow().getDecorView();
-        if (!(screen.contains("pay") || screen.contains("payment") || screen.contains("order")
-                || containsScreenText(root, "choose payment") || containsScreenText(root, "payment method"))) return;
+        if (!(screen.contains("pay") || screen.contains("payment") || screen.contains("upi")
+                || containsScreenText(root, "choose payment") || containsScreenText(root, "payment method")
+                || containsScreenText(root, "select provider"))) return;
         String provider = prefs().getString(PREF_PROVIDER, "PhonePe");
         if (provider == null || provider.length() == 0 || "Other".equals(provider)) return;
         View option = findClickableText(root, provider, null);

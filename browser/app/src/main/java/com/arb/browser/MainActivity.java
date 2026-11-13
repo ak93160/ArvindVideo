@@ -188,7 +188,8 @@ public final class MainActivity extends Activity {
     private String readExtensionId() {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 getAssets().open(EXTENSION_ID_ASSET), StandardCharsets.UTF_8))) {
-            return reader.readLine() == null ? "" : reader.readLineSafe();
+            String line = reader.readLine();
+            return line == null ? "" : line.trim();
         } catch (Exception ignored) {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                     getAssets().open(EXTENSION_ID_ASSET), StandardCharsets.UTF_8))) {

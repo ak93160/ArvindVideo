@@ -102,7 +102,9 @@ public final class ArbBootstrapProvider extends ContentProvider {
                     refreshToggle(activity);
                 } catch (Exception e) { Log.w(TAG, "WebView scan failed", e); }
             }
-            handler.postDelayed(this, 1100L);
+            long nextDelay = nativeController.isBuyActivity(activity) && nativeController.isBotRunning()
+                    ? nativeController.getScanIntervalMs() : 600L;
+            handler.postDelayed(this, Math.max(160L, nextDelay));
         }
     };
 

@@ -64,6 +64,64 @@ def main():
     if not manifest.get("name"):
         manifest["name"] = "ARB Buyer Extension"
 
+    # Remove references to files absent from the supplied XPI. The supplied
+    # package references license.js, but that file is not present; GeckoView
+    # rejects content scripts whose referenced files cannot be resolved.
+    for key in ("content_scripts",):
+        entries = manifest.get(key, [])
+        for entry in entries:
+            entry["js"] = [name for name in entry.get("js", []) if (output / name).is_file()]
+        manifest[key] = [entry for entry in entries if entry.get("js") or entry.get("css")]
+
+    # Native messaging is used only for the browser's local toolbar controls.
+    # This is available to bundled GeckoView extensions.
+    permissions = manifest.setdefault("permissions", [])
+    for permission in ("geckoViewAddons", "nativeMessaging"):
+        if permission not in permissions:
+            permissions.append(permission)
+
+    # Bridge the browser's native toolbar to the extension's existing settings
+    # and start/stop engine. Only explicitly supported settings are accepted.
+    background = manifest.get("background", {})
+    worker = background.get("service_worker")
+    if worker:
+        worker_file = output / worker
+        bridge = r"""
+// ARB Browser native toolbar bridge (GeckoView built-in extension only).
+try {
+  const arbNativePort = chrome.runtime.connectNative("arb.browser");
+  arbNativePort.onMessage.addListener((message) => {
+    if (!message || message.type !== "ARB_BROWSER_SETTINGS") return;
+    const allowed = [
+      "running", "exactAmount", "minAmount", "maxAmount", "isAmountMode",
+      "paymentMethod", "openPayment", "soundEnabled"
+    ];
+    const settings = {};
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(message, key)) settings[key] = message[key];
+    }
+    chrome.storage.local.set(settings, () => {
+      chrome.tabs.query({}, (tabs) => {
+        for (const tab of tabs || []) {
+          if (!tab.id) continue;
+          const msg = settings.running
+            ? { type: "SETTINGS_UPDATED", settings }
+            : { type: "FORCE_STOP" };
+          chrome.tabs.sendMessage(tab.id, msg, () => void chrome.runtime.lastError);
+        }
+      });
+    });
+  });
+} catch (error) {
+  console.error("[ARB Browser] Native toolbar bridge unavailable:", error);
+}
+"""
+        if not worker_file.is_file():
+            raise SystemExit(f"Background worker missing: {worker}")
+        existing = worker_file.read_text(encoding="utf-8")
+        if "ARB Browser native toolbar bridge" not in existing:
+            worker_file.write_text(existing + "\n" + bridge, encoding="utf-8")
+
     # Bundled GeckoView extensions can be installed without AMO signing.
     browser = manifest.setdefault("browser_specific_settings", {})
     gecko = browser.setdefault("gecko", {})

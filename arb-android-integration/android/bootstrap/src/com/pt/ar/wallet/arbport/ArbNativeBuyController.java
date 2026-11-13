@@ -17,9 +17,6 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
-import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentActivity;
-import androidx.fragment.app.FragmentManager;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -169,11 +166,16 @@ public final class ArbNativeBuyController {
      * reload through their existing BuyViewModel.getBuyLists(...) method.
      */
     private void refreshVisibleBuyFragment(Activity activity) {
-        if (!(activity instanceof FragmentActivity)) return;
-        FragmentActivity host = (FragmentActivity) activity;
-        Fragment fragment = findVisibleBuyFragment(host.getSupportFragmentManager());
-        if (fragment == null || fragment.getView() == null || !fragment.getView().isShown()) return;
         try {
+            Method managerGetter = findMethod(activity.getClass(), "getSupportFragmentManager", 0);
+            if (managerGetter == null) return;
+            managerGetter.setAccessible(true);
+            Object manager = managerGetter.invoke(activity);
+            Object fragment = findVisibleBuyFragment(manager);
+            if (fragment == null) return;
+            Object fragmentView = invokeObject(fragment, "getView");
+            if (!(fragmentView instanceof View) || !((View) fragmentView).isShown()) return;
+
             Method refresh = findMethod(fragment.getClass(), "refreshBuyList", 0);
             if (refresh != null) {
                 refresh.setAccessible(true);
@@ -182,6 +184,7 @@ public final class ArbNativeBuyController {
                 diagnostic = "AUTO REFRESH · " + fragment.getClass().getSimpleName();
                 return;
             }
+
             // AutoBuy/UPI do not override BaseBuyFragment.refreshBuyList().
             Object viewModel = invokeObject(fragment, "getViewModel");
             if (viewModel == null) return;
@@ -197,7 +200,6 @@ public final class ArbNativeBuyController {
                     callbackType.getClassLoader(), new Class<?>[]{callbackType},
                     new java.lang.reflect.InvocationHandler() {
                         @Override public Object invoke(Object proxy, Method method, Object[] args) {
-                            if ("invoke".equals(method.getName())) return kotlin.Unit.INSTANCE;
                             if ("toString".equals(method.getName())) return "ArbAutoRefreshCallback";
                             if ("hashCode".equals(method.getName())) return System.identityHashCode(proxy);
                             if ("equals".equals(method.getName())) return proxy == (args == null ? null : args[0]);
@@ -205,8 +207,9 @@ public final class ArbNativeBuyController {
                         }
                     });
             getLists.setAccessible(true);
+            boolean showLoading = !fragment.getClass().getSimpleName().contains("Auto");
             getLists.invoke(viewModel, max, min, payment, Integer.valueOf(pageType),
-                    Boolean.valueOf(fragment.getClass().getSimpleName().contains("Auto")), callback);
+                    Boolean.valueOf(showLoading), callback);
             lastRefreshAt = System.currentTimeMillis();
             diagnostic = "AUTO REFRESH · " + fragment.getClass().getSimpleName();
         } catch (Exception e) {
@@ -214,19 +217,32 @@ public final class ArbNativeBuyController {
         }
     }
 
-    private Fragment findVisibleBuyFragment(FragmentManager manager) {
+    private Object findVisibleBuyFragment(Object manager) {
         if (manager == null) return null;
-        List<Fragment> fragments = manager.getFragments();
-        for (int i = fragments.size() - 1; i >= 0; i--) {
-            Fragment fragment = fragments.get(i);
-            if (fragment == null || !fragment.isAdded() || fragment.isDetached() || !fragment.isVisible()) continue;
-            Fragment nested = findVisibleBuyFragment(fragment.getChildFragmentManager());
-            if (nested != null) return nested;
-            String name = fragment.getClass().getName();
-            if (name.startsWith("com.pt.ar.wallet.home.buy.fragment.")
-                    && fragment.getView() != null && fragment.getView().isShown()) return fragment;
-        }
+        try {
+            Object value = manager.getClass().getMethod("getFragments").invoke(manager);
+            if (!(value instanceof List)) return null;
+            List<?> fragments = (List<?>) value;
+            for (int i = fragments.size() - 1; i >= 0; i--) {
+                Object fragment = fragments.get(i);
+                if (fragment == null) continue;
+                if (!invokeBoolean(fragment, "isAdded") || invokeBoolean(fragment, "isDetached")
+                        || !invokeBoolean(fragment, "isVisible")) continue;
+                Object childManager = invokeObject(fragment, "getChildFragmentManager");
+                Object nested = findVisibleBuyFragment(childManager);
+                if (nested != null) return nested;
+                String name = fragment.getClass().getName();
+                Object view = invokeObject(fragment, "getView");
+                if (name.startsWith("com.pt.ar.wallet.home.buy.fragment.")
+                        && view instanceof View && ((View) view).isShown()) return fragment;
+            }
+        } catch (Exception ignored) { }
         return null;
+    }
+
+    private boolean invokeBoolean(Object target, String name) {
+        Object value = invokeObject(target, name);
+        return value instanceof Boolean && ((Boolean) value).booleanValue();
     }
 
     private Method findMethod(Class<?> type, String name, int parameterCount) {

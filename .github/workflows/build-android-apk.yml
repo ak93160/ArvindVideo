@@ -14,7 +14,7 @@ on:
         required: true
         type: string
       extension_xpi_url:
-        description: Direct GitHub Release asset URL for Arvind_Bot_Standalone_NoLicenseJS.xpi
+        description: Direct GitHub Release asset URL for the uploaded extension.xpi
         required: true
         type: string
       release_tag:
@@ -91,10 +91,10 @@ jobs:
       - name: Decode target APK and stage extension
         run: |
           java -Xmx5g -jar build/apktool.jar d -f build/input/base.apk -o build/decoded
-          python3 scripts/patch_target.py \
+          python3 arb-android-integration/scripts/patch_target.py \
             --decoded build/decoded \
             --xpi build/input/extension.xpi \
-            --shim android/extension-shim.js
+            --shim arb-android-integration/android/extension-shim.js
 
       - name: Compile Android bootstrap DEX
         run: |
@@ -103,7 +103,7 @@ jobs:
           ANDROID_JAR="$ANDROID_HOME/platforms/android-${ANDROID_API}/android.jar"
           javac -source 8 -target 8 -bootclasspath "$ANDROID_JAR" \
             -d build/bootstrap/classes \
-            $(find android/bootstrap/src -name '*.java' -print)
+            $(find arb-android-integration/android/bootstrap/src -name '*.java' -print)
           "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/d8" \
             --lib "$ANDROID_JAR" --min-api 23 \
             --output build/bootstrap/dex \
@@ -114,7 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           java -Xmx5g -jar build/apktool.jar b build/decoded -o build/unsigned.apk
-          python3 scripts/inject_dex.py build/unsigned.apk build/bootstrap/dex/classes.dex
+          python3 arb-android-integration/scripts/inject_dex.py build/unsigned.apk build/bootstrap/dex/classes.dex
           "$ANDROID_HOME/build-tools/${BUILD_TOOLS}/zipalign" -f 4 build/unsigned.apk build/aligned.apk
 
       - name: Sign APK

@@ -92,6 +92,7 @@ jobs:
       # The Android bootstrap also provides a persistent in-app Extension ON/OFF control.
       # Native Buy screens are scanned through their BuyOptionalNewAdapter rows; OTP/PIN/payment remain manual.
       # The visible native Buy tab is refreshed automatically every 2.5 seconds while matching.
+      # AutoBuy/UPI inherit a no-op refresh hook; their existing ViewModel list request is invoked instead.
       - name: Decode target APK and stage extension
         run: |
           java -Xmx5g -jar build/apktool.jar d -f build/input/base.apk -o build/decoded

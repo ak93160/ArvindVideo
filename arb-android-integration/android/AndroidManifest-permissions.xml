@@ -1,0 +1,7 @@
+<!-- Merge the permissions required by your existing app. Android 13+ also
+     requires runtime permission handling for POST_NOTIFICATIONS. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- SYSTEM_ALERT_WINDOW is only needed if you implement a system-wide
+         floating bubble. The in-WebView draggable HUD does not require it. -->
+</manifest>
